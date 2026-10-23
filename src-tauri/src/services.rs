@@ -96,12 +96,22 @@ fn emit_dock_win_number(index: u8) {
 
 unsafe extern "system" fn keyboard_hook_proc(code: i32, wparam: windows::Win32::Foundation::WPARAM, lparam: windows::Win32::Foundation::LPARAM) -> windows::Win32::Foundation::LRESULT {
     use windows::Win32::UI::WindowsAndMessaging::{KBDLLHOOKSTRUCT, WM_KEYDOWN, WM_SYSKEYDOWN, WM_KEYUP, WM_SYSKEYUP, LLKHF_INJECTED};
-    use windows::Win32::UI::Input::KeyboardAndMouse::{VK_VOLUME_MUTE, VK_VOLUME_UP, VK_VOLUME_DOWN, VK_LWIN, VK_RWIN, VIRTUAL_KEY};
+    use windows::Win32::UI::Input::KeyboardAndMouse::{VK_VOLUME_MUTE, VK_VOLUME_UP, VK_VOLUME_DOWN, VK_LWIN, VK_RWIN, VK_ESCAPE, VIRTUAL_KEY};
     if code >= 0 {
         let kb = *(lparam.0 as *const KBDLLHOOKSTRUCT);
         let vk_code = VIRTUAL_KEY(kb.vkCode as u16);
         let is_down = wparam.0 == WM_KEYDOWN as usize || wparam.0 == WM_SYSKEYDOWN as usize;
         let is_up = wparam.0 == WM_KEYUP as usize || wparam.0 == WM_SYSKEYUP as usize;
+
+        // Snip owns the screen and the overlay webview never has focus, so Escape
+        // must be caught here: cancel the snip and tell the overlay UI to reset.
+        if crate::state::SNIP_ACTIVE.load(Ordering::Relaxed) && vk_code == VK_ESCAPE && is_down {
+            if let Some(app) = KEYBOARD_HOOK_APP_HANDLE.get().cloned() {
+                let _ = crate::screenshot::cancel_snip(app.clone());
+                let _ = app.emit_to("overlay", "snip-abort", ());
+            }
+            return windows::Win32::Foundation::LRESULT(1);
+        }
 
         // Only physical keys count, our own injected taps must not loop back in.
         if (kb.flags.0 & LLKHF_INJECTED.0) == 0 {
@@ -1735,6 +1745,14 @@ unsafe fn process_mouse_move(app_handle: &AppHandle, cursor: windows::Win32::Fou
                 return;
             }
 
+            // Snip owns the screen: freeze ALL hit-testing/click-through management so
+            // nothing calls set_ignore_cursor_events or re_assert_topmost mid-snip and
+            // z-order/interactivity stay exactly as start_snip left them. The hook proc
+            // already updated the cursor position bookkeeping above.
+            if crate::state::SNIP_ACTIVE.load(Ordering::Relaxed) {
+                return;
+            }
+
             // Refresh cached monitor info every 1s
             if now - MH_LAST_MONITOR_UPDATE_MS.load(Ordering::Relaxed) > 1000 {
                 if let Ok(Some(monitor)) = app_handle.primary_monitor() {
@@ -2066,47 +2084,45 @@ unsafe fn process_mouse_move(app_handle: &AppHandle, cursor: windows::Win32::Fou
                 }
             }
 
-            // --- Overlay cursor passthrough (skipped while a snip owns the overlay) ---
-            if !crate::state::SNIP_ACTIVE.load(Ordering::Relaxed) {
-                if let Some(ov_win) = app_handle.get_webview_window("overlay") {
-                    if fg_fs {
-                        let prev = MH_LAST_OV_IGNORE.load(Ordering::Relaxed);
-                        if prev != 1 {
-                            if let Ok(hwnd) = ov_win.hwnd() { re_assert_topmost(hwnd); }
-                            let _ = ov_win.set_ignore_cursor_events(true);
-                            MH_LAST_OV_IGNORE.store(1, Ordering::Relaxed);
-                        }
-                    } else {
-                        let over_left = in_mixer || if let Ok(Some(m)) = ov_win.primary_monitor() {
-                            let ms = m.size();
-                            let mp = m.position();
-                            let sc = m.scale_factor() * overlay_nectar_scale;
-                            let nw = (42.0 * sc) as i32;
-                            let nh = (196.0 * sc) as i32;
-                            let nx = mp.x;
-                            let ny = mp.y + (ms.height as i32 / 2) - (nh / 2);
-                            cursor.x >= nx && cursor.x <= nx + nw && cursor.y >= ny && cursor.y <= ny + nh
-                        } else { false };
+            // --- Overlay cursor passthrough ---
+            if let Some(ov_win) = app_handle.get_webview_window("overlay") {
+                if fg_fs {
+                    let prev = MH_LAST_OV_IGNORE.load(Ordering::Relaxed);
+                    if prev != 1 {
+                        if let Ok(hwnd) = ov_win.hwnd() { re_assert_topmost(hwnd); }
+                        let _ = ov_win.set_ignore_cursor_events(true);
+                        MH_LAST_OV_IGNORE.store(1, Ordering::Relaxed);
+                    }
+                } else {
+                    let over_left = in_mixer || if let Ok(Some(m)) = ov_win.primary_monitor() {
+                        let ms = m.size();
+                        let mp = m.position();
+                        let sc = m.scale_factor() * overlay_nectar_scale;
+                        let nw = (42.0 * sc) as i32;
+                        let nh = (196.0 * sc) as i32;
+                        let nx = mp.x;
+                        let ny = mp.y + (ms.height as i32 / 2) - (nh / 2);
+                        cursor.x >= nx && cursor.x <= nx + nw && cursor.y >= ny && cursor.y <= ny + nh
+                    } else { false };
 
-                        let over_right = if let Ok(Some(m)) = ov_win.primary_monitor() {
-                            let ms = m.size();
-                            let mp = m.position();
-                            let sc = m.scale_factor() * overlay_nectar_scale;
-                            let nw = (42.0 * sc) as i32;
-                            let nh = (196.0 * sc) as i32;
-                            let nx = mp.x + ms.width as i32 - nw;
-                            let ny = mp.y + (ms.height as i32 / 2) - (nh / 2);
-                            cursor.x >= nx && cursor.x <= nx + nw && cursor.y >= ny && cursor.y <= ny + nh
-                        } else { false };
+                    let over_right = if let Ok(Some(m)) = ov_win.primary_monitor() {
+                        let ms = m.size();
+                        let mp = m.position();
+                        let sc = m.scale_factor() * overlay_nectar_scale;
+                        let nw = (42.0 * sc) as i32;
+                        let nh = (196.0 * sc) as i32;
+                        let nx = mp.x + ms.width as i32 - nw;
+                        let ny = mp.y + (ms.height as i32 / 2) - (nh / 2);
+                        cursor.x >= nx && cursor.x <= nx + nw && cursor.y >= ny && cursor.y <= ny + nh
+                    } else { false };
 
-                        let should_ignore = !(over_left || over_right);
-                        let prev = MH_LAST_OV_IGNORE.load(Ordering::Relaxed);
-                        let new_val = if should_ignore { 1 } else { 0 };
-                        if prev != new_val {
-                            if let Ok(hwnd) = ov_win.hwnd() { re_assert_topmost(hwnd); }
-                            let _ = ov_win.set_ignore_cursor_events(should_ignore);
-                            MH_LAST_OV_IGNORE.store(new_val, Ordering::Relaxed);
-                        }
+                    let should_ignore = !(over_left || over_right);
+                    let prev = MH_LAST_OV_IGNORE.load(Ordering::Relaxed);
+                    let new_val = if should_ignore { 1 } else { 0 };
+                    if prev != new_val {
+                        if let Ok(hwnd) = ov_win.hwnd() { re_assert_topmost(hwnd); }
+                        let _ = ov_win.set_ignore_cursor_events(should_ignore);
+                        MH_LAST_OV_IGNORE.store(new_val, Ordering::Relaxed);
                     }
                 }
             }

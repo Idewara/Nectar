@@ -704,11 +704,24 @@ function OverlayApp() {
       }
     });
 
-    const snipPromise = listen<{ image: string }>("snip-begin", (e) => {
+    const snipPromise = listen<{ image: string | null }>("snip-begin", (e) => {
       snipActiveRef.current = true;
       setSnipImage(e.payload.image);
       setSnipSel(null);
       setMode('snip');
+    });
+
+    const snipFramePromise = listen<{ image: string | null }>("snip-frame", (e) => {
+      if (!snipActiveRef.current) return;
+      if (e.payload.image) setSnipImage(e.payload.image);
+    });
+
+    const snipAbortPromise = listen("snip-abort", () => {
+      snipActiveRef.current = false;
+      snipStartRef.current = null;
+      setSnipSel(null);
+      setSnipImage(null);
+      setMode('idle');
     });
 
     const applyUpdateStatus = ({ status, progress }: { status: string; progress?: number }) => {
@@ -750,6 +763,8 @@ function OverlayApp() {
       brightPromise.then(fn => fn());
       brightEdgePromise.then(fn => fn());
       snipPromise.then(fn => fn());
+      snipFramePromise.then(fn => fn());
+      snipAbortPromise.then(fn => fn());
       autoUpdatePromise.then(fn => fn());
       settingsResetPromise.then(fn => fn());
       document.removeEventListener('contextmenu', preventContext);
@@ -814,6 +829,8 @@ function OverlayApp() {
 
   // ── Region Snip ──
   // Escape cancels the snip (also covers a mouse-down that never saw a mouse-up).
+  // The webview has no focus (WS_EX_NOACTIVATE), so the backend keyboard hook is the
+  // real cancel path — this listener is just a nicety for when the window IS focused.
   useEffect(() => {
     if (mode !== 'snip') return;
     const onKey = (e: KeyboardEvent) => {
@@ -826,7 +843,15 @@ function OverlayApp() {
       setMode('idle');
     };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    // Once the cursor has left the notch and the command center has auto-hidden,
+    // ask the backend to freeze the frame (it sleeps before capturing).
+    const freezeTimer = setTimeout(() => {
+      if (snipActiveRef.current) invoke('snip_freeze').catch(() => {});
+    }, 700);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      clearTimeout(freezeTimer);
+    };
   }, [mode]);
 
   const onSnipDown = (e: React.MouseEvent) => {
@@ -981,9 +1006,11 @@ function OverlayApp() {
       </AnimatePresence>
 
       {/* Region Snip Layer */}
-      {mode === 'snip' && snipImage && (
+      {mode === 'snip' && (
         <div className="snip-layer" onMouseDown={onSnipDown} onMouseMove={onSnipMove} onMouseUp={onSnipUp}>
-          <img src={snipImage} className="snip-bg" draggable={false} alt="" />
+          {snipImage
+            ? <img src={snipImage} className="snip-bg" draggable={false} alt="" />
+            : <div className="snip-dim" />}
           {snipSel && snipSel.w > 0 && snipSel.h > 0 && (
             <div className="snip-rect" style={{ left: snipSel.x, top: snipSel.y, width: snipSel.w, height: snipSel.h }} />
           )}
