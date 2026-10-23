@@ -92,7 +92,7 @@ unsafe fn capture_virtual_screen() -> Result<(i32, i32, Vec<u8>), String> {
 
     // Origin can be negative (monitors left of/above the primary) — BitBlt handles it.
     let mut result = Err("BitBlt failed".to_string());
-    if BitBlt(hdc_mem, 0, 0, width, height, hdc_screen, vx, vy, SRCCOPY | CAPTUREBLT).is_ok() {
+    if BitBlt(hdc_mem, 0, 0, width, height, Some(hdc_screen), vx, vy, SRCCOPY | CAPTUREBLT).is_ok() {
         let mut bmi = BITMAPINFO {
             bmiHeader: BITMAPINFOHEADER {
                 biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
@@ -174,8 +174,9 @@ fn set_clipboard_dib(owner: Option<isize>, width: i32, height: i32, rgba: &[u8])
         use windows::Win32::Foundation::{HANDLE, HWND};
         use windows::Win32::Graphics::Gdi::{BITMAPINFOHEADER, BI_RGB};
         use windows::Win32::System::DataExchange::{
-            CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData, CF_DIB,
+            CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData,
         };
+        const CF_DIB: u32 = 8;
         use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
 
         let header_size = std::mem::size_of::<BITMAPINFOHEADER>();
@@ -227,7 +228,7 @@ fn set_clipboard_dib(owner: Option<isize>, width: i32, height: i32, rgba: &[u8])
                 }
                 std::ptr::copy_nonoverlapping(dib.as_ptr(), ptr as *mut u8, total);
                 let _ = GlobalUnlock(hglobal);
-                SetClipboardData(CF_DIB.0, Some(HANDLE(hglobal.0)))
+                SetClipboardData(CF_DIB, Some(HANDLE(hglobal.0)))
                     .map_err(|e| format!("SetClipboardData failed: {e}"))?;
             }
             Ok(())
