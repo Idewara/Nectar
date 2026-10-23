@@ -1,5 +1,5 @@
-import { NotchCalendar } from '../NotchCalendar';
-import type { CaldavState } from '../../hooks/useCaldav';
+import { NotchCalendar } from '../../NotchCalendar';
+import type { CaldavState } from '../../../hooks/useCaldav';
 
 interface CalendarTabProps {
   caldav: CaldavState;

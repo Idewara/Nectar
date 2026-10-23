@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { invoke } from '@tauri-apps/api/core';
-import { PlayIcon, PauseIcon, SkipBackIcon, SkipForwardIcon, MusicNoteIcon } from '../../icons';
+import { PlayIcon, PauseIcon, SkipBackIcon, SkipForwardIcon, MusicNoteIcon } from '../../../icons';
 
 // Structurally compatible with the MediaInfo interface in App.tsx.
 export interface DashboardMediaInfo {
