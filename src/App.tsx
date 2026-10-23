@@ -3,6 +3,7 @@ import { useEffect, useState, useCallback, useRef, memo } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { currentMonitor } from "@tauri-apps/api/window";
 import type { UpdateCheckResult } from "./updater";
 import "./App.css";
 import { initTheme } from "./theme";
@@ -2130,7 +2131,7 @@ function App() {
                           if (capturing) return;
                           setCapturing(true);
                           try {
-                            const mon = await getCurrentWebviewWindow().currentMonitor();
+                            const mon = await currentMonitor();
                             const region = mon
                               ? { x: mon.position.x, y: mon.position.y, width: mon.size.width, height: mon.size.height }
                               : null;
