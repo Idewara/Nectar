@@ -2124,13 +2124,17 @@ function App() {
                       </button>
                       <button
                         className="cc-circular-btn"
-                        title="Screenshot"
+                        title="Screenshot monitor ini (klik) · Pilih area bebas (klik kanan)"
                         onClick={async (e) => {
                           e.stopPropagation();
                           if (capturing) return;
                           setCapturing(true);
                           try {
-                            await invoke("take_screenshot");
+                            const mon = await getCurrentWebviewWindow().currentMonitor();
+                            const region = mon
+                              ? { x: mon.position.x, y: mon.position.y, width: mon.size.width, height: mon.size.height }
+                              : null;
+                            await invoke("take_screenshot", { region });
                             setShotOk(true);
                             setTimeout(() => setShotOk(false), 1500);
                           } catch (err) {
@@ -2138,6 +2142,11 @@ function App() {
                           } finally {
                             setCapturing(false);
                           }
+                        }}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          invoke("open_snipping_tool").catch(console.error);
                         }}
                       >
                         {shotOk ? <Check size={14} strokeWidth={2.5} /> : <Camera size={14} strokeWidth={2.5} />}

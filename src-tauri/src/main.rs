@@ -190,7 +190,8 @@ fn main() {
             ics::ics_add_link,
             ics::ics_remove_link,
             ics::ics_detect,
-            screenshot::take_screenshot
+            screenshot::take_screenshot,
+            screenshot::open_snipping_tool
         ])
         .setup(|app| {
             init_taskbar_marker(app.handle());

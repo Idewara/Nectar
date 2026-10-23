@@ -1,17 +1,51 @@
 use std::path::PathBuf;
 use tauri::Manager;
 
+#[derive(serde::Deserialize)]
+pub struct Region {
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+}
+
 #[tauri::command]
-pub async fn take_screenshot(app: tauri::AppHandle) -> Result<String, String> {
+pub async fn take_screenshot(app: tauri::AppHandle, region: Option<Region>) -> Result<String, String> {
     if crate::state::SHUTTING_DOWN.load(std::sync::atomic::Ordering::Relaxed) {
         return Err("Nectar is shutting down".to_string());
     }
-    tauri::async_runtime::spawn_blocking(move || capture_screenshot(&app))
+    tauri::async_runtime::spawn_blocking(move || capture_screenshot(&app, region))
         .await
         .map_err(|e| format!("screenshot task failed: {e}"))?
 }
 
-fn capture_screenshot(app: &tauri::AppHandle) -> Result<String, String> {
+/// Opens the native Windows snip overlay (Win+Shift+S UI) so the user can drag-select
+/// any region. The result lands on the clipboard; Snipping Tool auto-saves to
+/// Pictures\Screenshots when that setting is on.
+#[tauri::command]
+pub fn open_snipping_tool() -> Result<(), String> {
+    use windows::core::PCWSTR;
+    use windows::Win32::UI::Shell::ShellExecuteW;
+    use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+    unsafe {
+        let wide_open: Vec<u16> = "open".encode_utf16().chain(std::iter::once(0)).collect();
+        let wide_uri: Vec<u16> = "ms-screenclip:".encode_utf16().chain(std::iter::once(0)).collect();
+        let res = ShellExecuteW(
+            None,
+            PCWSTR(wide_open.as_ptr()),
+            PCWSTR(wide_uri.as_ptr()),
+            None,
+            None,
+            SW_SHOWNORMAL,
+        );
+        if res.0 as usize <= 32 {
+            return Err(format!("failed to open snipping tool: error code {}", res.0 as usize));
+        }
+    }
+    Ok(())
+}
+
+fn capture_screenshot(app: &tauri::AppHandle, region: Option<Region>) -> Result<String, String> {
     use windows::Win32::Foundation::HWND;
     use windows::Win32::UI::WindowsAndMessaging::{IsWindowVisible, ShowWindow, SW_HIDE, SW_SHOWNA};
 
@@ -37,7 +71,14 @@ fn capture_screenshot(app: &tauri::AppHandle) -> Result<String, String> {
     // Let DWM settle so the hidden windows are really gone from the composited frame.
     std::thread::sleep(std::time::Duration::from_millis(200));
 
-    let result = unsafe { capture_virtual_screen() };
+    let capture = match &region {
+        Some(r) => (r.x, r.y, r.width, r.height),
+        None => {
+            let (vx, vy, vw, vh) = virtual_screen_rect()?;
+            (vx, vy, vw, vh)
+        }
+    };
+    let result = unsafe { capture_screen_region(capture.0, capture.1, capture.2, capture.3) };
 
     // Restore every return path from here on — windows come back before the Result propagates.
     unsafe {
@@ -65,24 +106,34 @@ fn capture_screenshot(app: &tauri::AppHandle) -> Result<String, String> {
     Ok(path.to_string_lossy().to_string())
 }
 
-/// Captures the entire virtual screen (all monitors) as top-down RGBA pixels.
-unsafe fn capture_virtual_screen() -> Result<(i32, i32, Vec<u8>), String> {
+fn virtual_screen_rect() -> Result<(i32, i32, i32, i32), String> {
+    unsafe {
+        use windows::Win32::UI::WindowsAndMessaging::{
+            GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN,
+            SM_YVIRTUALSCREEN,
+        };
+        let vx = GetSystemMetrics(SM_XVIRTUALSCREEN);
+        let vy = GetSystemMetrics(SM_YVIRTUALSCREEN);
+        let width = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+        let height = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+        if width <= 0 || height <= 0 {
+            return Err("virtual screen has no area".to_string());
+        }
+        Ok((vx, vy, width, height))
+    }
+}
+
+/// Captures a rectangle of the virtual screen as top-down RGBA pixels.
+/// Origin can be negative (monitors left of/above the primary) — BitBlt handles it.
+unsafe fn capture_screen_region(x: i32, y: i32, width: i32, height: i32) -> Result<(i32, i32, Vec<u8>), String> {
     use windows::Win32::Graphics::Gdi::{
         BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, GetDC,
         GetDIBits, ReleaseDC, SelectObject, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, CAPTUREBLT,
         DIB_RGB_COLORS, SRCCOPY,
     };
-    use windows::Win32::UI::WindowsAndMessaging::{
-        GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN,
-        SM_YVIRTUALSCREEN,
-    };
 
-    let vx = GetSystemMetrics(SM_XVIRTUALSCREEN);
-    let vy = GetSystemMetrics(SM_YVIRTUALSCREEN);
-    let width = GetSystemMetrics(SM_CXVIRTUALSCREEN);
-    let height = GetSystemMetrics(SM_CYVIRTUALSCREEN);
     if width <= 0 || height <= 0 {
-        return Err("virtual screen has no area".to_string());
+        return Err("capture region has no area".to_string());
     }
 
     let hdc_screen = GetDC(None);
@@ -90,9 +141,8 @@ unsafe fn capture_virtual_screen() -> Result<(i32, i32, Vec<u8>), String> {
     let hbm_mem = CreateCompatibleBitmap(hdc_screen, width, height);
     let h_old = SelectObject(hdc_mem, hbm_mem.into());
 
-    // Origin can be negative (monitors left of/above the primary) — BitBlt handles it.
     let mut result = Err("BitBlt failed".to_string());
-    if BitBlt(hdc_mem, 0, 0, width, height, Some(hdc_screen), vx, vy, SRCCOPY | CAPTUREBLT).is_ok() {
+    if BitBlt(hdc_mem, 0, 0, width, height, Some(hdc_screen), x, y, SRCCOPY | CAPTUREBLT).is_ok() {
         let mut bmi = BITMAPINFO {
             bmiHeader: BITMAPINFOHEADER {
                 biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
