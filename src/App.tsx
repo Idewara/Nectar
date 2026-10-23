@@ -14,6 +14,7 @@ import { useSettingsSync } from "./hooks/useSettingsSync";
 import { useTrailingThrottle } from "./hooks/useTrailingThrottle";
 import { useCaldav } from "./hooks/useCaldav";
 import { NotchCalendar } from "./components/NotchCalendar";
+import { Dashboard, type DashboardTab } from "./components/dashboard/Dashboard";
 import { NotchClock, StopwatchReadout } from "./components/NotchClock";
 import { useStopwatch } from "./hooks/useStopwatch";
 import type { WidgetConfig } from "./components/StatusWidgetConfig";
@@ -458,6 +459,9 @@ function App() {
   const [dndActive, setDndActive] = useState(false);
   const [capturing, setCapturing] = useState(false);
   const [shotOk, setShotOk] = useState(false);
+  const [dashboardOpen, setDashboardOpen] = useState(false);
+  const [dashboardTab, setDashboardTab] = useState<DashboardTab>('widgets');
+  const dashboardCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [dockEnabled, setDockEnabled] = useState(() => localStorage.getItem("nectar-dock-enabled") !== "false");
   const [isNotchHovered, setIsNotchHovered] = useState(false);
 
@@ -470,7 +474,8 @@ function App() {
   const notchModeInitial = useRef(true);
 
   const isAnyInteraction = isHovered || isNotchHovered || isEdgeHovered;
-  const isHidden = !startupAnimating && (
+  // Dashboard wins over smart/peek auto-hide — a wide dashboard over other windows stays up.
+  const isHidden = !startupAnimating && !dashboardOpen && (
     (notchMode === 'smart' && isOverlapped && interactionState === 'none') ||
     (notchMode === 'peek' && interactionState === 'none' && !eventPeek)
   );
@@ -539,7 +544,7 @@ function App() {
       clearInterval(poll);
       cancelAnimationFrame(rafId);
     };
-  }, [isExpanded, isHidden, windowLabel, scale]);
+  }, [isExpanded, isHidden, windowLabel, scale, dashboardOpen]);
 
   useEffect(() => {
     if (!windowLabel) return;
@@ -858,14 +863,19 @@ function App() {
 
   // Drag the notch's empty area >40px to move Nectar (notch + dock) to another monitor.
   // Past the threshold the backend mouse hook takes over global cursor tracking, so the
-  // listeners here are removed right away; on pointerup before it, nothing happened.
+  // listeners here are removed right away; a short click (pointerup before the threshold)
+  // toggles the dashboard instead.
   const monitorDragCleanupRef = useRef<(() => void) | null>(null);
-  useEffect(() => () => { monitorDragCleanupRef.current?.(); }, []);
+  useEffect(() => () => {
+    monitorDragCleanupRef.current?.();
+    if (dashboardCloseTimerRef.current) clearTimeout(dashboardCloseTimerRef.current);
+  }, []);
 
   const handleNotchMouseDown = (e: React.MouseEvent) => {
     if (e.button !== 0) return;
     const target = e.target as HTMLElement;
-    if (target.closest('button, input, a, [role="button"], .cc-pill-tile, .cc-circular-btn, .calendar-grid, .timer-column, .cal-scroll')) return;
+    // Interactive children (and the dashboard content card) never start a drag/toggle.
+    if (target.closest('button, input, a, [role="button"], .cc-pill-tile, .cc-circular-btn, .calendar-grid, .timer-column, .cal-scroll, .calendar-container, .dashboard-content')) return;
     const startX = e.clientX;
     const startY = e.clientY;
     let began = false;
@@ -882,7 +892,19 @@ function App() {
         removeListeners();
       }
     };
-    const onUp = () => { removeListeners(); };
+    const onUp = () => {
+      removeListeners();
+      if (began) return;
+      // Short click on the notch's empty area toggles the dashboard.
+      if (dashboardCloseTimerRef.current) {
+        clearTimeout(dashboardCloseTimerRef.current);
+        dashboardCloseTimerRef.current = null;
+      }
+      if (!dashboardOpen) {
+        setDashboardTab(mediaInfo.has_media && isPlaying ? 'music' : 'widgets');
+      }
+      setDashboardOpen(!dashboardOpen);
+    };
     monitorDragCleanupRef.current?.();
     monitorDragCleanupRef.current = removeListeners;
     window.addEventListener('pointermove', onMove);
@@ -894,6 +916,9 @@ function App() {
     if (target.closest('.calendar-grid') || target.closest('.timer-column') || target.closest('.cal-scroll')) {
       return;
     }
+
+    // Scroll-mode switching only applies to the compact notch, not the dashboard.
+    if (dashboardOpen) return;
 
     if (!isHovered) return;
 
@@ -1502,6 +1527,7 @@ function App() {
 
   // Calculate width dynamically based on enabled features
   const getDynamicWidth = () => {
+    if (dashboardOpen) return 1040;
     if (isCalendarMode) return settingsCalendarEnabled && showClockColumn ? 480 : settingsCalendarEnabled ? 310 : 270;
     if (nectarMode === 'command-center' && isHovered) {
       const totalWidgets = statusWidgets.left.length + statusWidgets.right.length;
@@ -1529,6 +1555,7 @@ function App() {
   };
 
   const getDynamicHeight = () => {
+    if (dashboardOpen) return 340;
     if (!isExpanded || isHidden) {
       return isImpacted ? 28.9 : 44.2;
     }
@@ -1598,8 +1625,8 @@ function App() {
           scaleY: 1,
           borderTopLeftRadius: isImpacted ? 0 : 18,
           borderTopRightRadius: isImpacted ? 0 : 18,
-          borderBottomLeftRadius: isCalendarMode ? 28 : 18,
-          borderBottomRightRadius: isCalendarMode ? 28 : 18,
+          borderBottomLeftRadius: (isCalendarMode || dashboardOpen) ? 28 : 18,
+          borderBottomRightRadius: (isCalendarMode || dashboardOpen) ? 28 : 18,
           filter: "blur(0px)",
           pointerEvents: 'auto'
         }}
@@ -1607,11 +1634,24 @@ function App() {
           e.stopPropagation();
         }}
         onHoverStart={() => {
+          // Re-entering cancels the dashboard's hover-exit close timer.
+          if (dashboardCloseTimerRef.current) {
+            clearTimeout(dashboardCloseTimerRef.current);
+            dashboardCloseTimerRef.current = null;
+          }
           setIsHovered(true);
           setNectarMode(mediaInfo.has_media && isPlaying ? 'music' : 'status');
         }}
         onHoverEnd={() => {
           setIsHovered(false);
+          if (dashboardOpen) {
+            // Dashboard lingers 1.2s after the cursor leaves, then auto-closes.
+            dashboardCloseTimerRef.current = setTimeout(() => {
+              dashboardCloseTimerRef.current = null;
+              setDashboardOpen(false);
+            }, 1200);
+            return;
+          }
           const targetMode = mediaInfo.has_media && isPlaying && settingsMusicCompactNotch ? 'music' : 'status';
           if (nectarMode === 'music') {
             setNectarMode(targetMode);
@@ -1658,7 +1698,37 @@ function App() {
           )}
         </AnimatePresence>
         <AnimatePresence mode="wait">
-          {isExpanded && (
+          {dashboardOpen && (
+            <motion.div
+              key="nectar-dashboard"
+              initial={{ opacity: 0, scale: 0.98 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.98, transition: { duration: 0.1 } }}
+              transition={{ type: "spring", stiffness: 500, damping: 30 }}
+              style={{ width: '100%', height: '100%' }}
+            >
+              <Dashboard
+                activeTab={dashboardTab}
+                onTabChange={setDashboardTab}
+                onClose={() => setDashboardOpen(false)}
+                time={time}
+                dndActive={dndActive}
+                onToggleDnd={() => setDndActive(prev => !prev)}
+                onOpenSettings={openSettingsWindow}
+                batteryLevel={batteryLevel}
+                isCharging={isCharging}
+                hasBattery={hasBattery}
+                mediaInfo={mediaInfo}
+                albumArtUrl={albumArtUrl}
+                albumArtKey={albumArtKey}
+                isPlaying={isPlaying}
+                onTogglePlayPause={togglePlayPause}
+                caldav={caldav}
+                hour12={!timeFormat24h}
+              />
+            </motion.div>
+          )}
+          {!dashboardOpen && isExpanded && (
             <motion.div
               key="nectar-content"
               initial={{ opacity: 0 }}

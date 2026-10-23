@@ -1,0 +1,325 @@
+/* Dashboard shell — the wide notch. All colors come from the theme CSS vars (theme.ts). */
+
+.dashboard {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 12px 16px 16px;
+  gap: 10px;
+  box-sizing: border-box;
+}
+
+.dashboard-top-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 34px;
+  flex-shrink: 0;
+}
+
+.dashboard-tabs {
+  display: flex;
+  gap: 6px;
+}
+
+.dashboard-tab {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--nectar-text-muted, rgba(255, 255, 255, 0.6));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.dashboard-tab:hover {
+  background: var(--nectar-group-bg, rgba(255, 255, 255, 0.06));
+  color: var(--nectar-text, #fff);
+}
+
+.dashboard-tab.active {
+  background: var(--nectar-group-bg, rgba(255, 255, 255, 0.08));
+  border-color: var(--nectar-border, rgba(255, 255, 255, 0.1));
+  color: var(--nectar-accent, #007aff);
+}
+
+.dashboard-right-cluster {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.dashboard-clock {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--nectar-text, #fff);
+  font-variant-numeric: tabular-nums;
+}
+
+.dashboard-strip-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: var(--nectar-text-muted, rgba(255, 255, 255, 0.6));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.dashboard-strip-btn:hover {
+  background: var(--nectar-group-bg, rgba(255, 255, 255, 0.06));
+  color: var(--nectar-text, #fff);
+}
+
+.dashboard-strip-btn.active {
+  color: var(--nectar-accent, #007aff);
+  background: var(--nectar-group-bg, rgba(255, 255, 255, 0.08));
+}
+
+.dashboard-battery {
+  font-size: 12px;
+  color: var(--nectar-text-muted, rgba(255, 255, 255, 0.6));
+  font-variant-numeric: tabular-nums;
+}
+
+.dashboard-content {
+  flex: 1;
+  position: relative;
+  background: var(--nectar-group-bg, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--nectar-border, rgba(255, 255, 255, 0.08));
+  border-radius: 18px;
+  overflow: hidden;
+}
+
+.dashboard-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 5;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: none;
+  background: var(--nectar-group-bg, rgba(255, 255, 255, 0.06));
+  color: var(--nectar-text-muted, rgba(255, 255, 255, 0.6));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.dashboard-close:hover {
+  background: var(--nectar-border, rgba(255, 255, 255, 0.12));
+  color: var(--nectar-text, #fff);
+}
+
+.dashboard-tab-pane {
+  width: 100%;
+  height: 100%;
+}
+
+.dashboard-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--nectar-text-muted, rgba(255, 255, 255, 0.5));
+  font-size: 14px;
+}
+
+/* ── Music tab ── */
+
+.dash-music {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  width: 100%;
+  height: 100%;
+  padding: 18px 56px 18px 24px;
+  box-sizing: border-box;
+}
+
+.dash-music-art {
+  width: 150px;
+  height: 150px;
+  border-radius: 14px;
+  overflow: hidden;
+  flex-shrink: 0;
+  background: var(--nectar-group-bg, rgba(255, 255, 255, 0.06));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dash-music-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.dash-music-art-placeholder {
+  color: var(--nectar-text-muted, rgba(255, 255, 255, 0.5));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dash-music-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.dash-music-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.dash-marquee-wrap {
+  overflow: hidden;
+  width: 100%;
+}
+
+.dash-music-title {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--nectar-text, #fff);
+  white-space: nowrap;
+  display: inline-block;
+}
+
+.dash-marquee {
+  animation: dash-marquee-scroll var(--scroll-duration, 8s) linear infinite;
+}
+
+@keyframes dash-marquee-scroll {
+  0%, 15% { transform: translateX(0); }
+  85%, 100% { transform: translateX(var(--scroll-distance, 0)); }
+}
+
+.dash-music-artist {
+  font-size: 13px;
+  color: var(--nectar-text-muted, rgba(255, 255, 255, 0.6));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dash-music-progress-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dash-music-time {
+  font-size: 11px;
+  color: var(--nectar-text-muted, rgba(255, 255, 255, 0.6));
+  font-variant-numeric: tabular-nums;
+  min-width: 34px;
+}
+
+.dash-music-time:last-child {
+  text-align: right;
+}
+
+.dash-music-bar {
+  position: relative;
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--nectar-border, rgba(255, 255, 255, 0.12));
+}
+
+.dash-music-bar-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-radius: 2px;
+  background: var(--nectar-accent, #007aff);
+}
+
+.dash-music-seek {
+  position: absolute;
+  top: -6px;
+  bottom: -6px;
+  left: 0;
+  width: 100%;
+  height: auto;
+  opacity: 0;
+  cursor: pointer;
+  margin: 0;
+}
+
+.dash-music-controls {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.dash-music-btn {
+  background: none;
+  border: none;
+  color: var(--nectar-text, #fff);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border-radius: 8px;
+  transition: background 0.15s;
+}
+
+.dash-music-btn:hover {
+  background: var(--nectar-group-bg, rgba(255, 255, 255, 0.06));
+}
+
+.dash-music-play {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: none;
+  background: var(--nectar-text, #fff);
+  color: var(--nectar-bg-expanded, #000);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.dash-music-empty {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--nectar-text-muted, rgba(255, 255, 255, 0.5));
+  font-size: 13px;
+}
+
+/* ── Calendar tab ── */
+
+.dashboard-calendar-tab {
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  padding: 8px 12px;
+  box-sizing: border-box;
+}
