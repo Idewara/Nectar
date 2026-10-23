@@ -709,6 +709,8 @@ function OverlayApp() {
       setSnipImage(e.payload.image);
       setSnipSel(null);
       setMode('snip');
+      // Ack so the backend flips the overlay from click-through to interactive.
+      invoke('snip_ready').catch(() => {});
     });
 
     const snipFramePromise = listen<{ image: string | null }>("snip-frame", (e) => {

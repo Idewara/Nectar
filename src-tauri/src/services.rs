@@ -1750,6 +1750,13 @@ unsafe fn process_mouse_move(app_handle: &AppHandle, cursor: windows::Win32::Fou
             // z-order/interactivity stay exactly as start_snip left them. The hook proc
             // already updated the cursor position bookkeeping above.
             if crate::state::SNIP_ACTIVE.load(Ordering::Relaxed) {
+                // Belt-and-suspenders: an acked snip stuck for >60s (webview wedged
+                // mid-snip) is torn down from here so the screen can't stay frozen.
+                if crate::screenshot::snip_armed_elapsed().map(|e| e > Duration::from_secs(60)).unwrap_or(false) {
+                    crate::diagnostics::log("[snip] stuck-guard fired: active >60s, cancelling");
+                    let _ = crate::screenshot::cancel_snip(app_handle.clone());
+                    let _ = app_handle.emit_to("overlay", "snip-abort", ());
+                }
                 return;
             }
 

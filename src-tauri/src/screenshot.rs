@@ -13,6 +13,9 @@ pub struct Region {
 static SNIP_BUFFER: std::sync::Mutex<Option<(i32, i32, Vec<u8>)>> = std::sync::Mutex::new(None);
 /// Monitor region the snip covers, remembered so snip_freeze needs no arguments.
 static SNIP_REGION: std::sync::Mutex<Option<Region>> = std::sync::Mutex::new(None);
+/// When the current snip was armed. Some(_) between start_snip and cleanup_snip — also
+/// the "arming, awaiting ack" marker and the mouse hook's stuck-guard clock.
+static SNIP_ARMED_AT: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
 
 #[tauri::command]
 pub async fn take_screenshot(app: tauri::AppHandle, region: Option<Region>) -> Result<String, String> {
@@ -26,8 +29,10 @@ pub async fn take_screenshot(app: tauri::AppHandle, region: Option<Region>) -> R
 
 /// Starts Nectar's own region-select snip. v2 never touches OS visibility of the
 /// notch/dock windows (that desynced smart-mode state and click-through bookkeeping);
-/// it only moves the always-on-top overlay over the monitor and dims it. The frozen
-/// frame is captured later by snip_freeze, once the command center has auto-hidden.
+/// it only moves the always-on-top overlay over the monitor and dims it. The overlay
+/// stays CLICK-THROUGH until the webview acks via snip_ready — a dead or suspended
+/// webview can never strand the user on an unclickable screen — and a watchdog tears
+/// the dim back down if the ack never arrives.
 #[tauri::command]
 pub fn start_snip(app: tauri::AppHandle, region: Region) -> Result<(), String> {
     use tauri::Emitter;
@@ -35,22 +40,30 @@ pub fn start_snip(app: tauri::AppHandle, region: Region) -> Result<(), String> {
     if crate::state::SHUTTING_DOWN.load(std::sync::atomic::Ordering::Relaxed) {
         return Err("Nectar is shutting down".to_string());
     }
-    // Set SNIP_ACTIVE first so the mouse hook freezes all hit-testing immediately.
-    if crate::state::SNIP_ACTIVE.swap(true, std::sync::atomic::Ordering::Relaxed) {
+    if crate::state::SNIP_ACTIVE.load(std::sync::atomic::Ordering::Relaxed) {
         return Err("snip already in progress".to_string());
     }
+    // SNIP_ARMED_AT doubles as the "armed, awaiting ack" marker — a second right-click
+    // while arming is rejected here (the overlay is click-through pre-ack, so the
+    // camera button is still reachable).
+    if SNIP_ARMED_AT.lock().ok().and_then(|a| *a).is_some() {
+        return Err("snip already arming".to_string());
+    }
     if let Ok(mut r) = SNIP_REGION.lock() { *r = Some(region); }
+    let armed_at = std::time::Instant::now();
+    if let Ok(mut a) = SNIP_ARMED_AT.lock() { *a = Some(armed_at); }
+    crate::diagnostics::log(&format!(
+        "[snip] armed for region {}x{} at {},{}",
+        region.width, region.height, region.x, region.y
+    ));
 
     let shown = if let Some(win) = app.get_webview_window("overlay") {
         let _ = win.set_position(tauri::PhysicalPosition::new(region.x, region.y));
         let _ = win.set_size(tauri::PhysicalSize::new(region.width as u32, region.height as u32));
-        let _ = win.set_ignore_cursor_events(false);
+        // Click-through until the ack — the dim must not eat clicks before the UI is
+        // confirmed alive.
+        let _ = win.set_ignore_cursor_events(true);
         let _ = win.show();
-        // Sit above notch/dock in z-order for the duration of the snip.
-        if let Ok(hwnd) = win.hwnd() {
-            let hwnd_val = hwnd.0 as isize;
-            crate::utils::re_assert_topmost(windows::Win32::Foundation::HWND(hwnd_val as *mut _));
-        }
         true
     } else {
         false
@@ -64,7 +77,52 @@ pub fn start_snip(app: tauri::AppHandle, region: Region) -> Result<(), String> {
         cleanup_snip(&app);
         return Err(format!("failed to emit snip-begin: {e}"));
     }
+
+    // Watchdog: fires only when the ack NEVER arrived (SNIP_ACTIVE still false after
+    // 3s), so a legit in-progress snip is never killed here — that case is bounded by
+    // the mouse hook's 60s stuck-guard. Holds no locks while sleeping.
+    let app_watchdog = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_secs(3));
+        if crate::state::SNIP_ACTIVE.load(std::sync::atomic::Ordering::Relaxed) {
+            return;
+        }
+        let still_same = SNIP_ARMED_AT.lock().ok().and_then(|a| *a) == Some(armed_at);
+        if still_same {
+            crate::diagnostics::log("[snip] watchdog fired: no ack within 3s, cleaning up");
+            cleanup_snip(&app_watchdog);
+        }
+    });
+
     Ok(())
+}
+
+/// Overlay's ack for "snip-begin": only now does the snip become active (mouse hook
+/// freezes hit-testing) and the overlay start receiving clicks. Before this point the
+/// overlay is click-through, so a failed ack leaves the app fully normal.
+#[tauri::command]
+pub fn snip_ready(app: tauri::AppHandle) -> Result<(), String> {
+    let armed = SNIP_REGION.lock().ok().and_then(|r| *r).is_some();
+    if !armed {
+        return Err("no snip armed".to_string());
+    }
+    crate::state::SNIP_ACTIVE.store(true, std::sync::atomic::Ordering::Relaxed);
+    if let Some(win) = app.get_webview_window("overlay") {
+        let _ = win.set_ignore_cursor_events(false);
+        // Sit above notch/dock in z-order for the duration of the snip.
+        if let Ok(hwnd) = win.hwnd() {
+            let hwnd_val = hwnd.0 as isize;
+            crate::utils::re_assert_topmost(windows::Win32::Foundation::HWND(hwnd_val as *mut _));
+        }
+    }
+    crate::diagnostics::log("[snip] ack received, active");
+    Ok(())
+}
+
+/// How long ago the current snip was armed. The mouse hook's stuck-guard reads this
+/// once per mouse move while SNIP_ACTIVE — keep it to a single lock, no I/O.
+pub fn snip_armed_elapsed() -> Option<std::time::Duration> {
+    SNIP_ARMED_AT.lock().ok().and_then(|a| a.map(|t| t.elapsed()))
 }
 
 /// Second phase, fired by the overlay ~700ms into the snip: by then the cursor has left
@@ -78,6 +136,10 @@ pub async fn snip_freeze(app: tauri::AppHandle) -> Result<(), String> {
     let Some(region) = region else {
         return Err("no snip in progress".to_string());
     };
+    // Only capture once the overlay acked — before that there is no live snip UI.
+    if !crate::state::SNIP_ACTIVE.load(std::sync::atomic::Ordering::Relaxed) {
+        return Err("snip not acked".to_string());
+    }
 
     let result = tauri::async_runtime::spawn_blocking(move || {
         std::thread::sleep(std::time::Duration::from_millis(600));
@@ -104,9 +166,14 @@ pub async fn snip_freeze(app: tauri::AppHandle) -> Result<(), String> {
                 cleanup_snip(&app);
                 return Err(format!("failed to emit snip-frame: {e}"));
             }
+            crate::diagnostics::log(&format!(
+                "[snip] frame captured ({}x{} at {},{})",
+                region.width, region.height, region.x, region.y
+            ));
             Ok(())
         }
         Err(e) => {
+            crate::diagnostics::log(&format!("[snip] freeze failed: {e}"));
             let _ = app.emit_to("overlay", "snip-abort", ());
             cleanup_snip(&app);
             Err(e)
@@ -161,6 +228,7 @@ pub async fn finish_snip(app: tauri::AppHandle, x: i32, y: i32, width: i32, heig
         if let Err(e) = set_clipboard_dib(None, pw, ph, &cropped) {
             eprintln!("snip: clipboard set failed: {e}");
         }
+        crate::diagnostics::log(&format!("[snip] saved {}", path.display()));
         Ok(path.to_string_lossy().to_string())
     })
     .await
@@ -172,6 +240,7 @@ pub async fn finish_snip(app: tauri::AppHandle, x: i32, y: i32, width: i32, heig
 
 #[tauri::command]
 pub fn cancel_snip(app: tauri::AppHandle) -> Result<(), String> {
+    crate::diagnostics::log("[snip] cancelled");
     cleanup_snip(&app);
     Ok(())
 }
@@ -187,6 +256,7 @@ fn cleanup_snip(app: &tauri::AppHandle) {
     crate::state::SNIP_ACTIVE.store(false, std::sync::atomic::Ordering::Relaxed);
     if let Ok(mut b) = SNIP_BUFFER.lock() { *b = None; }
     if let Ok(mut r) = SNIP_REGION.lock() { *r = None; }
+    if let Ok(mut a) = SNIP_ARMED_AT.lock() { *a = None; }
 }
 
 fn capture_screenshot(app: &tauri::AppHandle, region: Option<Region>) -> Result<String, String> {

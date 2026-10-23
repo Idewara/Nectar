@@ -192,6 +192,7 @@ fn main() {
             ics::ics_detect,
             screenshot::take_screenshot,
             screenshot::start_snip,
+            screenshot::snip_ready,
             screenshot::snip_freeze,
             screenshot::finish_snip,
             screenshot::cancel_snip,
