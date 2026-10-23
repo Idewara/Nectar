@@ -1753,6 +1753,44 @@ unsafe fn process_mouse_move(app_handle: &AppHandle, cursor: windows::Win32::Fou
                 return;
             }
 
+            // Notch monitor-move drag: the webview loses the cursor off-window, so the
+            // hook tracks it. Dwelling >=400ms on a different monitor retargets both
+            // dock and notch there (once per drag); releasing the button ends the drag.
+            if crate::state::MONITOR_DRAG_ACTIVE.load(Ordering::Relaxed) {
+                use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON};
+                let held = (GetAsyncKeyState(VK_LBUTTON.0 as i32) as u16 & 0x8000) != 0;
+                if !held {
+                    crate::state::MONITOR_DRAG_ACTIVE.store(false, Ordering::Relaxed);
+                    if let Ok(mut d) = crate::state::MONITOR_DRAG_DWELL.lock() { *d = None; }
+                } else if let Some(candidate) = crate::monitors::monitor_drag_candidate(app_handle, cursor.x, cursor.y) {
+                    let mut fire = false;
+                    if let Ok(mut dwell) = crate::state::MONITOR_DRAG_DWELL.lock() {
+                        match &*dwell {
+                            Some((_, _, since, id)) if *id == candidate => {
+                                if since.elapsed() >= Duration::from_millis(400) {
+                                    fire = true;
+                                }
+                            }
+                            _ => {
+                                *dwell = Some((cursor.x, cursor.y, Instant::now(), candidate.clone()));
+                            }
+                        }
+                        // One retarget per drag — consume the dwell state before firing.
+                        if fire { *dwell = None; }
+                    }
+                    if fire {
+                        // File I/O + window moves, kept outside the dwell lock. One
+                        // retarget per drag: tracking ends here, the button-up is moot.
+                        let _ = crate::monitors::retarget_windows_to_monitor(app_handle, &candidate);
+                        crate::state::MONITOR_DRAG_ACTIVE.store(false, Ordering::Relaxed);
+                    }
+                } else {
+                    // Cursor is back over the current target monitor — reset the dwell.
+                    if let Ok(mut d) = crate::state::MONITOR_DRAG_DWELL.lock() { *d = None; }
+                }
+                return;
+            }
+
             // Refresh cached monitor info every 1s
             if now - MH_LAST_MONITOR_UPDATE_MS.load(Ordering::Relaxed) > 1000 {
                 if let Ok(Some(monitor)) = app_handle.primary_monitor() {

@@ -130,6 +130,10 @@ pub static MONITOR_SYNC_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
 
 pub static MENU_IS_OPEN: AtomicBool = AtomicBool::new(false);
 pub static MENU_RECT: Mutex<Option<IntRect>> = Mutex::new(None);
+/// Notch drag-to-move-monitor gesture in progress (frontend began it, mouse hook tracks it).
+pub static MONITOR_DRAG_ACTIVE: AtomicBool = AtomicBool::new(false);
+/// Drag dwell tracking: cursor x/y, when it entered the candidate monitor, candidate's stable id.
+pub static MONITOR_DRAG_DWELL: Mutex<Option<(i32, i32, std::time::Instant, String)>> = Mutex::new(None);
 pub static DOCK_IS_DRAGGING: AtomicBool = AtomicBool::new(false);
 pub static ICON_CACHE: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
 

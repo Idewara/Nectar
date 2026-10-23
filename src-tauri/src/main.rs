@@ -194,7 +194,8 @@ fn main() {
             screenshot::start_snip,
             screenshot::snip_freeze,
             screenshot::finish_snip,
-            screenshot::cancel_snip
+            screenshot::cancel_snip,
+            monitors::begin_monitor_drag
         ])
         .setup(|app| {
             init_taskbar_marker(app.handle());

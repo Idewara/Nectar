@@ -204,3 +204,79 @@ pub fn sync_monitor_windows(app: &AppHandle) {
 
     MONITOR_SYNC_IN_PROGRESS.store(false, Ordering::SeqCst);
 }
+
+/// Frontend crossed the drag threshold on the notch's empty area — the global mouse
+/// hook takes over cursor tracking from here (the webview loses the cursor off-window).
+#[tauri::command]
+pub fn begin_monitor_drag() {
+    MONITOR_DRAG_ACTIVE.store(true, Ordering::Relaxed);
+    if let Ok(mut d) = MONITOR_DRAG_DWELL.lock() { *d = None; }
+}
+
+/// Stable id of the monitor containing the point, if it differs from the notch's
+/// current target monitor. Ids come from the same `monitor_stable_id` path
+/// `resolve_target_monitor` uses, so the comparison is apples-to-apples.
+pub fn monitor_drag_candidate(app: &AppHandle, x: i32, y: i32) -> Option<String> {
+    let monitors = app.available_monitors().ok()?;
+    let (hovered_idx, hovered) = monitors.iter().enumerate().find(|(_, m)| {
+        let p = m.position();
+        let s = m.size();
+        x >= p.x && x < p.x + s.width as i32 && y >= p.y && y < p.y + s.height as i32
+    })?;
+    let hovered_id = monitor_stable_id(hovered, hovered_idx);
+    let current = resolve_target_monitor(app, WindowKind::Notch)?;
+    let current_id = monitors.iter().enumerate()
+        .find(|(_, m)| same_monitor(m, &current))
+        .map(|(i, m)| monitor_stable_id(m, i))?;
+    if hovered_id != current_id { Some(hovered_id) } else { None }
+}
+
+/// Drag-to-move retarget: point BOTH dock and notch at `device_name` in a single
+/// settings write, then run the same re-sync side effects `save_setting` runs for
+/// monitor-targeting keys (one resync, not one per key).
+pub fn retarget_windows_to_monitor(app: &AppHandle, device_name: &str) -> Result<(), String> {
+    let path = app.path().app_config_dir().map_err(|e| e.to_string())?.join("settings.json");
+    if let Some(parent) = path.parent() { let _ = std::fs::create_dir_all(parent); }
+    let mut settings = HashMap::new();
+    if let Ok(content) = std::fs::read_to_string(&path) {
+        if let Ok(existing) = serde_json::from_str::<HashMap<String, serde_json::Value>>(&content) {
+            settings = existing;
+        }
+    }
+    let specific = serde_json::Value::String("specific".to_string());
+    let id = serde_json::Value::String(device_name.to_string());
+    settings.insert("nectar-dock-monitor-mode".to_string(), specific.clone());
+    settings.insert("nectar-dock-monitor-id".to_string(), id.clone());
+    settings.insert("nectar-notch-monitor-mode".to_string(), specific);
+    settings.insert("nectar-notch-monitor-id".to_string(), id);
+    let content = serde_json::to_string(&settings).map_err(|e| e.to_string())?;
+    std::fs::write(path, content).map_err(|e| e.to_string())?;
+
+    crate::utils::replace_settings_cache(settings.clone());
+
+    for key in [
+        "nectar-dock-monitor-mode",
+        "nectar-dock-monitor-id",
+        "nectar-notch-monitor-mode",
+        "nectar-notch-monitor-id",
+    ] {
+        let _ = app.emit("settings-changed", serde_json::json!({ "key": key, "value": &settings[key] }));
+    }
+
+    let app_clone = app.clone();
+    tauri::async_runtime::spawn(async move {
+        sync_monitor_windows(&app_clone);
+        let dock_enabled = crate::utils::get_setting_str(&app_clone, "nectar-dock-enabled")
+            .map(|v| v == "true").unwrap_or(true);
+        if dock_enabled {
+            let dock_mode = crate::utils::get_setting_str(&app_clone, "nectar-dock-mode")
+                .unwrap_or_else(|| "smart".to_string());
+            crate::commands::change_dock_mode(app_clone.clone(), dock_mode).await;
+        }
+        let notch_mode = crate::utils::get_setting_str(&app_clone, "nectar-notch-mode")
+            .unwrap_or_else(|| "fixed".to_string());
+        crate::commands::change_notch_mode(app_clone.clone(), notch_mode).await;
+    });
+
+    Ok(())
+}

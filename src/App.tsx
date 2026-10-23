@@ -856,6 +856,39 @@ function App() {
   const WHEEL_STEP_THRESHOLD = 60;
   const WHEEL_IDLE_RESET_MS = 180;
 
+  // Drag the notch's empty area >40px to move Nectar (notch + dock) to another monitor.
+  // Past the threshold the backend mouse hook takes over global cursor tracking, so the
+  // listeners here are removed right away; on pointerup before it, nothing happened.
+  const monitorDragCleanupRef = useRef<(() => void) | null>(null);
+  useEffect(() => () => { monitorDragCleanupRef.current?.(); }, []);
+
+  const handleNotchMouseDown = (e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    const target = e.target as HTMLElement;
+    if (target.closest('button, input, a, [role="button"], .cc-pill-tile, .cc-circular-btn, .calendar-grid, .timer-column, .cal-scroll')) return;
+    const startX = e.clientX;
+    const startY = e.clientY;
+    let began = false;
+    const removeListeners = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      monitorDragCleanupRef.current = null;
+    };
+    const onMove = (ev: PointerEvent) => {
+      if (began) return;
+      if (Math.hypot(ev.clientX - startX, ev.clientY - startY) > 40) {
+        began = true;
+        invoke("begin_monitor_drag").catch(() => {});
+        removeListeners();
+      }
+    };
+    const onUp = () => { removeListeners(); };
+    monitorDragCleanupRef.current?.();
+    monitorDragCleanupRef.current = removeListeners;
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  };
+
   const handleWheel = (e: React.WheelEvent) => {
     const target = e.target as HTMLElement;
     if (target.closest('.calendar-grid') || target.closest('.timer-column') || target.closest('.cal-scroll')) {
@@ -1553,6 +1586,7 @@ function App() {
           className={`nectar ${isHovered ? 'expanded' : ''} ${isImpacted ? 'is-impacted' : ''}`}
           onMouseEnter={() => setIsNotchHovered(true)}
         onMouseLeave={() => setIsNotchHovered(false)}
+        onMouseDown={handleNotchMouseDown}
         onWheel={handleWheel}
         initial={{ y: 250, width: 30.6, height: 44.2, borderTopLeftRadius: 18, borderTopRightRadius: 18, borderBottomLeftRadius: 18, borderBottomRightRadius: 18, scaleX: 1, scaleY: 1, opacity: 0 }}
         animate={{
