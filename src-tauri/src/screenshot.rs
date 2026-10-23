@@ -144,7 +144,7 @@ pub async fn finish_snip(app: tauri::AppHandle, x: i32, y: i32, width: i32, heig
     .map_err(|e| format!("snip finish task failed: {e}"));
 
     cleanup_snip(&app);
-    result
+    result?
 }
 
 #[tauri::command]
