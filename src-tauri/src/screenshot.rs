@@ -1,13 +1,18 @@
 use std::path::PathBuf;
 use tauri::Manager;
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, Clone, Copy)]
 pub struct Region {
     pub x: i32,
     pub y: i32,
     pub width: i32,
     pub height: i32,
 }
+
+/// (width, height, RGBA pixels) of the monitor captured for the in-progress snip.
+static SNIP_BUFFER: std::sync::Mutex<Option<(i32, i32, Vec<u8>)>> = std::sync::Mutex::new(None);
+/// Windows hidden for the snip, restored when it finishes or is cancelled.
+static SNIP_HIDDEN: std::sync::Mutex<Vec<isize>> = std::sync::Mutex::new(Vec::new());
 
 #[tauri::command]
 pub async fn take_screenshot(app: tauri::AppHandle, region: Option<Region>) -> Result<String, String> {
@@ -19,35 +24,158 @@ pub async fn take_screenshot(app: tauri::AppHandle, region: Option<Region>) -> R
         .map_err(|e| format!("screenshot task failed: {e}"))?
 }
 
-/// Opens the native Windows snip overlay (Win+Shift+S UI) so the user can drag-select
-/// any region. The result lands on the clipboard; Snipping Tool auto-saves to
-/// Pictures\Screenshots when that setting is on.
+/// Starts Nectar's own region-select snip: hides every visible Nectar window, captures the
+/// given monitor region, then shows the frozen frame in the overlay window for selection.
+/// Windows stay hidden until finish_snip/cancel_snip.
 #[tauri::command]
-pub fn open_snipping_tool() -> Result<(), String> {
-    use windows::core::PCWSTR;
-    use windows::Win32::UI::Shell::ShellExecuteW;
-    use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
-    unsafe {
-        let wide_open: Vec<u16> = "open".encode_utf16().chain(std::iter::once(0)).collect();
-        let wide_uri: Vec<u16> = "ms-screenclip:".encode_utf16().chain(std::iter::once(0)).collect();
-        let res = ShellExecuteW(
-            None,
-            PCWSTR(wide_open.as_ptr()),
-            PCWSTR(wide_uri.as_ptr()),
-            None,
-            None,
-            SW_SHOWNORMAL,
-        );
-        if res.0 as usize <= 32 {
-            return Err(format!("failed to open snipping tool: error code {}", res.0 as usize));
+pub async fn start_snip(app: tauri::AppHandle, region: Region) -> Result<(), String> {
+    use base64::Engine;
+    use tauri::Emitter;
+
+    if crate::state::SHUTTING_DOWN.load(std::sync::atomic::Ordering::Relaxed) {
+        return Err("Nectar is shutting down".to_string());
+    }
+    if crate::state::SNIP_ACTIVE.load(std::sync::atomic::Ordering::Relaxed) {
+        return Err("snip already in progress".to_string());
+    }
+
+    let app_capture = app.clone();
+    let image = tauri::async_runtime::spawn_blocking(move || {
+        let hidden = hide_nectar_windows(&app_capture);
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        let captured = unsafe { capture_screen_region(region.x, region.y, region.width, region.height) };
+        match captured {
+            Ok((width, height, pixels)) => {
+                let png = match encode_png(width, height, &pixels) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        restore_nectar_windows(&hidden);
+                        return Err(e);
+                    }
+                };
+                if let Ok(mut b) = SNIP_BUFFER.lock() { *b = Some((width, height, pixels)); }
+                if let Ok(mut h) = SNIP_HIDDEN.lock() { *h = hidden; }
+                Ok(format!(
+                    "data:image/png;base64,{}",
+                    base64::engine::general_purpose::STANDARD.encode(png)
+                ))
+            }
+            Err(e) => {
+                restore_nectar_windows(&hidden);
+                Err(e)
+            }
         }
+    })
+    .await
+    .map_err(|e| format!("snip capture task failed: {e}"))??;
+
+    // Rust owns the overlay window until finish/cancel — set the flag before showing it
+    // so the cursor-passthrough hook stops toggling ignore_cursor_events mid-snip.
+    crate::state::SNIP_ACTIVE.store(true, std::sync::atomic::Ordering::Relaxed);
+    let shown = if let Some(win) = app.get_webview_window("overlay") {
+        let _ = win.set_position(tauri::PhysicalPosition::new(region.x, region.y));
+        let _ = win.set_size(tauri::PhysicalSize::new(region.width as u32, region.height as u32));
+        let _ = win.set_ignore_cursor_events(false);
+        let _ = win.show();
+        true
+    } else {
+        false
+    };
+    if !shown {
+        cleanup_snip(&app);
+        return Err("overlay window not available".to_string());
+    }
+    if let Err(e) = app.emit_to("overlay", "snip-begin", serde_json::json!({ "image": image })) {
+        cleanup_snip(&app);
+        return Err(format!("failed to emit snip-begin: {e}"));
     }
     Ok(())
 }
 
-fn capture_screenshot(app: &tauri::AppHandle, region: Option<Region>) -> Result<String, String> {
+/// Crops the selected region out of the captured frame, saves the PNG and puts it on the
+/// clipboard. x/y/width/height are logical CSS px relative to the overlay window.
+#[tauri::command]
+pub async fn finish_snip(app: tauri::AppHandle, x: i32, y: i32, width: i32, height: i32, scale: f64) -> Result<String, String> {
+    let result = tauri::async_runtime::spawn_blocking(move || -> Result<String, String> {
+        let buffer = SNIP_BUFFER.lock().ok().and_then(|mut b| b.take());
+        let Some((buf_w, buf_h, pixels)) = buffer else {
+            return Err("no snip in progress".to_string());
+        };
+
+        // Logical (CSS px) -> physical pixels, clamped into the captured buffer.
+        let px = (x as f64 * scale).round() as i32;
+        let py = (y as f64 * scale).round() as i32;
+        let mut pw = (width as f64 * scale).round() as i32;
+        let mut ph = (height as f64 * scale).round() as i32;
+        let px = px.clamp(0, buf_w);
+        let py = py.clamp(0, buf_h);
+        pw = pw.min(buf_w - px);
+        ph = ph.min(buf_h - py);
+
+        // Too small to be meaningful — treat as a cancel, just clean up.
+        if pw < 2 || ph < 2 {
+            return Ok(String::new());
+        }
+
+        // Crop rows out of the top-down RGBA buffer.
+        let stride = buf_w as usize * 4;
+        let row_bytes = pw as usize * 4;
+        let mut cropped = vec![0u8; row_bytes * ph as usize];
+        for row in 0..ph as usize {
+            let src_start = (py as usize + row) * stride + px as usize * 4;
+            cropped[row * row_bytes..(row + 1) * row_bytes]
+                .copy_from_slice(&pixels[src_start..src_start + row_bytes]);
+        }
+
+        let png = encode_png(pw, ph, &cropped)?;
+        let dir = screenshots_dir().ok_or_else(|| "Pictures folder not found".to_string())?;
+        std::fs::create_dir_all(&dir).map_err(|e| format!("failed to create {}: {e}", dir.display()))?;
+        let filename = chrono::Local::now()
+            .format("Nectar Screenshot %Y%m%d-%H%M%S.png")
+            .to_string();
+        let path = dir.join(filename);
+        std::fs::write(&path, &png).map_err(|e| format!("failed to write {}: {e}", path.display()))?;
+        if let Err(e) = set_clipboard_dib(None, pw, ph, &cropped) {
+            eprintln!("snip: clipboard set failed: {e}");
+        }
+        Ok(path.to_string_lossy().to_string())
+    })
+    .await
+    .map_err(|e| format!("snip finish task failed: {e}"));
+
+    cleanup_snip(&app);
+    result
+}
+
+#[tauri::command]
+pub fn cancel_snip(app: tauri::AppHandle) -> Result<(), String> {
+    cleanup_snip(&app);
+    Ok(())
+}
+
+/// Hides the overlay again, re-enables click-through, and restores whatever was hidden
+/// for the snip. Safe to call when no snip is in progress (statics are empty then).
+fn cleanup_snip(app: &tauri::AppHandle) {
+    if let Some(win) = app.get_webview_window("overlay") {
+        let _ = win.hide();
+        let _ = win.set_ignore_cursor_events(true);
+    }
+    crate::state::SNIP_ACTIVE.store(false, std::sync::atomic::Ordering::Relaxed);
+    let hidden = SNIP_HIDDEN
+        .lock()
+        .ok()
+        .map(|mut h| std::mem::take(&mut *h))
+        .unwrap_or_default();
+    restore_nectar_windows(&hidden);
+    if let Ok(mut b) = SNIP_BUFFER.lock() { *b = None; }
+}
+
+/// Hides every currently-visible Nectar window via raw ShowWindow so the compositor
+/// drops them immediately. Returns the hwnds (as isize) that were hidden — only those
+/// get restored, so settings/calendar windows that were already hidden stay hidden.
+fn hide_nectar_windows(app: &tauri::AppHandle) -> Vec<isize> {
     use windows::Win32::Foundation::HWND;
-    use windows::Win32::UI::WindowsAndMessaging::{IsWindowVisible, ShowWindow, SW_HIDE, SW_SHOWNA};
+    use windows::Win32::UI::WindowsAndMessaging::{IsWindowVisible, ShowWindow, SW_HIDE};
 
     // Extract raw handles up front — HWND is not Send, keep only isize.
     let hwnds: Vec<isize> = app
@@ -56,8 +184,7 @@ fn capture_screenshot(app: &tauri::AppHandle, region: Option<Region>) -> Result<
         .filter_map(|w| w.hwnd().ok().map(|h| h.0 as isize))
         .collect();
 
-    // Hide only the windows that are currently visible (settings/calendar stay hidden).
-    let mut hidden: Vec<isize> = Vec::new();
+    let mut hidden = Vec::new();
     unsafe {
         for &h in &hwnds {
             let hwnd = HWND(h as *mut _);
@@ -67,6 +194,21 @@ fn capture_screenshot(app: &tauri::AppHandle, region: Option<Region>) -> Result<
             }
         }
     }
+    hidden
+}
+
+fn restore_nectar_windows(hidden: &[isize]) {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_SHOWNA};
+    unsafe {
+        for &h in hidden {
+            let _ = ShowWindow(HWND(h as *mut _), SW_SHOWNA);
+        }
+    }
+}
+
+fn capture_screenshot(app: &tauri::AppHandle, region: Option<Region>) -> Result<String, String> {
+    let hidden = hide_nectar_windows(app);
 
     // Let DWM settle so the hidden windows are really gone from the composited frame.
     std::thread::sleep(std::time::Duration::from_millis(200));
@@ -81,11 +223,7 @@ fn capture_screenshot(app: &tauri::AppHandle, region: Option<Region>) -> Result<
     let result = unsafe { capture_screen_region(capture.0, capture.1, capture.2, capture.3) };
 
     // Restore every return path from here on — windows come back before the Result propagates.
-    unsafe {
-        for &h in &hidden {
-            let _ = ShowWindow(HWND(h as *mut _), SW_SHOWNA);
-        }
-    }
+    restore_nectar_windows(&hidden);
 
     let (width, height, pixels) = result?;
 
@@ -99,7 +237,7 @@ fn capture_screenshot(app: &tauri::AppHandle, region: Option<Region>) -> Result<
     let path = dir.join(filename);
     std::fs::write(&path, &png).map_err(|e| format!("failed to write {}: {e}", path.display()))?;
 
-    if let Err(e) = set_clipboard_dib(hwnds.first().copied(), width, height, &pixels) {
+    if let Err(e) = set_clipboard_dib(hidden.first().copied(), width, height, &pixels) {
         eprintln!("screenshot: clipboard set failed: {e}");
     }
 

@@ -191,7 +191,9 @@ fn main() {
             ics::ics_remove_link,
             ics::ics_detect,
             screenshot::take_screenshot,
-            screenshot::open_snipping_tool
+            screenshot::start_snip,
+            screenshot::finish_snip,
+            screenshot::cancel_snip
         ])
         .setup(|app| {
             init_taskbar_marker(app.handle());

@@ -561,3 +561,8 @@ body,
 .light-mode .brightness-notch-bar {
     background: rgba(0, 0, 0, 0.12);
 }
+
+/* Region Snip */
+.snip-layer { position: fixed; inset: 0; cursor: crosshair; user-select: none; }
+.snip-bg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: fill; filter: brightness(0.55); pointer-events: none; }
+.snip-rect { position: absolute; border: 2px solid var(--nectar-accent, #4f9cf9); background: rgba(255,255,255,0.10); box-shadow: 0 0 0 9999px rgba(0,0,0,0.15); }

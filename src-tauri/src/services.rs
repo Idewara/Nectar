@@ -2066,45 +2066,47 @@ unsafe fn process_mouse_move(app_handle: &AppHandle, cursor: windows::Win32::Fou
                 }
             }
 
-            // --- Overlay cursor passthrough ---
-            if let Some(ov_win) = app_handle.get_webview_window("overlay") {
-                if fg_fs {
-                    let prev = MH_LAST_OV_IGNORE.load(Ordering::Relaxed);
-                    if prev != 1 {
-                        if let Ok(hwnd) = ov_win.hwnd() { re_assert_topmost(hwnd); }
-                        let _ = ov_win.set_ignore_cursor_events(true);
-                        MH_LAST_OV_IGNORE.store(1, Ordering::Relaxed);
-                    }
-                } else {
-                    let over_left = in_mixer || if let Ok(Some(m)) = ov_win.primary_monitor() {
-                        let ms = m.size();
-                        let mp = m.position();
-                        let sc = m.scale_factor() * overlay_nectar_scale;
-                        let nw = (42.0 * sc) as i32;
-                        let nh = (196.0 * sc) as i32;
-                        let nx = mp.x;
-                        let ny = mp.y + (ms.height as i32 / 2) - (nh / 2);
-                        cursor.x >= nx && cursor.x <= nx + nw && cursor.y >= ny && cursor.y <= ny + nh
-                    } else { false };
+            // --- Overlay cursor passthrough (skipped while a snip owns the overlay) ---
+            if !crate::state::SNIP_ACTIVE.load(Ordering::Relaxed) {
+                if let Some(ov_win) = app_handle.get_webview_window("overlay") {
+                    if fg_fs {
+                        let prev = MH_LAST_OV_IGNORE.load(Ordering::Relaxed);
+                        if prev != 1 {
+                            if let Ok(hwnd) = ov_win.hwnd() { re_assert_topmost(hwnd); }
+                            let _ = ov_win.set_ignore_cursor_events(true);
+                            MH_LAST_OV_IGNORE.store(1, Ordering::Relaxed);
+                        }
+                    } else {
+                        let over_left = in_mixer || if let Ok(Some(m)) = ov_win.primary_monitor() {
+                            let ms = m.size();
+                            let mp = m.position();
+                            let sc = m.scale_factor() * overlay_nectar_scale;
+                            let nw = (42.0 * sc) as i32;
+                            let nh = (196.0 * sc) as i32;
+                            let nx = mp.x;
+                            let ny = mp.y + (ms.height as i32 / 2) - (nh / 2);
+                            cursor.x >= nx && cursor.x <= nx + nw && cursor.y >= ny && cursor.y <= ny + nh
+                        } else { false };
 
-                    let over_right = if let Ok(Some(m)) = ov_win.primary_monitor() {
-                        let ms = m.size();
-                        let mp = m.position();
-                        let sc = m.scale_factor() * overlay_nectar_scale;
-                        let nw = (42.0 * sc) as i32;
-                        let nh = (196.0 * sc) as i32;
-                        let nx = mp.x + ms.width as i32 - nw;
-                        let ny = mp.y + (ms.height as i32 / 2) - (nh / 2);
-                        cursor.x >= nx && cursor.x <= nx + nw && cursor.y >= ny && cursor.y <= ny + nh
-                    } else { false };
+                        let over_right = if let Ok(Some(m)) = ov_win.primary_monitor() {
+                            let ms = m.size();
+                            let mp = m.position();
+                            let sc = m.scale_factor() * overlay_nectar_scale;
+                            let nw = (42.0 * sc) as i32;
+                            let nh = (196.0 * sc) as i32;
+                            let nx = mp.x + ms.width as i32 - nw;
+                            let ny = mp.y + (ms.height as i32 / 2) - (nh / 2);
+                            cursor.x >= nx && cursor.x <= nx + nw && cursor.y >= ny && cursor.y <= ny + nh
+                        } else { false };
 
-                    let should_ignore = !(over_left || over_right);
-                    let prev = MH_LAST_OV_IGNORE.load(Ordering::Relaxed);
-                    let new_val = if should_ignore { 1 } else { 0 };
-                    if prev != new_val {
-                        if let Ok(hwnd) = ov_win.hwnd() { re_assert_topmost(hwnd); }
-                        let _ = ov_win.set_ignore_cursor_events(should_ignore);
-                        MH_LAST_OV_IGNORE.store(new_val, Ordering::Relaxed);
+                        let should_ignore = !(over_left || over_right);
+                        let prev = MH_LAST_OV_IGNORE.load(Ordering::Relaxed);
+                        let new_val = if should_ignore { 1 } else { 0 };
+                        if prev != new_val {
+                            if let Ok(hwnd) = ov_win.hwnd() { re_assert_topmost(hwnd); }
+                            let _ = ov_win.set_ignore_cursor_events(should_ignore);
+                            MH_LAST_OV_IGNORE.store(new_val, Ordering::Relaxed);
+                        }
                     }
                 }
             }

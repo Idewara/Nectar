@@ -548,10 +548,16 @@ function OverlayApp() {
     return initTheme();
   }, []);
 
-  type Mode = 'idle' | 'volume' | 'brightness' | 'splash' | 'updating';
+  type Mode = 'idle' | 'volume' | 'brightness' | 'splash' | 'updating' | 'snip';
   const [mode, setMode] = useState<Mode>('idle');
   const [updateStatus, setUpdateStatus] = useState<string>('checking');
   const [updateProgress, setUpdateProgress] = useState(0);
+
+  // Region-select snip state (Rust hides the desktop, we draw the frozen frame)
+  const [snipImage, setSnipImage] = useState<string | null>(null);
+  const [snipSel, setSnipSel] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  const snipActiveRef = useRef(false);
+  const snipStartRef = useRef<{ x: number; y: number } | null>(null);
 
   // Volume state
   const [volume, setVolume] = useState(0.5);
@@ -654,6 +660,7 @@ function OverlayApp() {
     document.addEventListener('contextmenu', preventContext);
 
     const volPromise = listen("volume-change", (event: any) => {
+      if (snipActiveRef.current) return;
       if (splashActiveRef.current || !volumeOverlayEnabled) return;
       invoke("hide_native_osd");
       const { volume: newVolume, is_muted } = event.payload;
@@ -664,6 +671,7 @@ function OverlayApp() {
     });
 
     const volEdgePromise = listen<boolean>("volume-edge-hover", (event) => {
+      if (snipActiveRef.current) return;
       if (splashActiveRef.current || !volumeOverlayEnabled || !volumeEdgeEnabled) return;
       if (event.payload) {
         setMode('volume');
@@ -675,6 +683,7 @@ function OverlayApp() {
     });
 
     const brightPromise = listen("brightness-change", (event: any) => {
+      if (snipActiveRef.current) return;
       if (splashActiveRef.current || !brightnessOverlayEnabled) return;
       invoke("hide_native_osd");
       const { brightness: newBrightness } = event.payload;
@@ -684,6 +693,7 @@ function OverlayApp() {
     });
 
     const brightEdgePromise = listen<boolean>("brightness-edge-hover", (event) => {
+      if (snipActiveRef.current) return;
       if (splashActiveRef.current || !brightnessOverlayEnabled || !brightnessEdgeEnabled) return;
       if (event.payload) {
         setMode('brightness');
@@ -692,6 +702,13 @@ function OverlayApp() {
         if (timeoutRef.current) clearTimeout(timeoutRef.current);
         timeoutRef.current = setTimeout(() => setMode('idle'), 1500);
       }
+    });
+
+    const snipPromise = listen<{ image: string }>("snip-begin", (e) => {
+      snipActiveRef.current = true;
+      setSnipImage(e.payload.image);
+      setSnipSel(null);
+      setMode('snip');
     });
 
     const applyUpdateStatus = ({ status, progress }: { status: string; progress?: number }) => {
@@ -732,6 +749,7 @@ function OverlayApp() {
       volEdgePromise.then(fn => fn());
       brightPromise.then(fn => fn());
       brightEdgePromise.then(fn => fn());
+      snipPromise.then(fn => fn());
       autoUpdatePromise.then(fn => fn());
       settingsResetPromise.then(fn => fn());
       document.removeEventListener('contextmenu', preventContext);
@@ -784,8 +802,8 @@ function OverlayApp() {
       }
     };
 
-    // Don't manage window visibility during splash — Rust handles it
-    if (mode !== 'splash' && !splashActiveRef.current) {
+    // Don't manage window visibility during splash or snip — Rust handles it
+    if (mode !== 'splash' && mode !== 'snip' && !splashActiveRef.current) {
       syncWindow();
     }
 
@@ -793,6 +811,60 @@ function OverlayApp() {
       if (hideWindowTimeoutRef.current) clearTimeout(hideWindowTimeoutRef.current);
     };
   }, [mode]);
+
+  // ── Region Snip ──
+  // Escape cancels the snip (also covers a mouse-down that never saw a mouse-up).
+  useEffect(() => {
+    if (mode !== 'snip') return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      invoke('cancel_snip').catch(() => {});
+      snipActiveRef.current = false;
+      snipStartRef.current = null;
+      setSnipSel(null);
+      setSnipImage(null);
+      setMode('idle');
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [mode]);
+
+  const onSnipDown = (e: React.MouseEvent) => {
+    snipStartRef.current = { x: e.clientX, y: e.clientY };
+    setSnipSel({ x: e.clientX, y: e.clientY, w: 0, h: 0 });
+  };
+
+  const onSnipMove = (e: React.MouseEvent) => {
+    const start = snipStartRef.current;
+    if (!start) return;
+    setSnipSel({
+      x: Math.min(start.x, e.clientX),
+      y: Math.min(start.y, e.clientY),
+      w: Math.abs(e.clientX - start.x),
+      h: Math.abs(e.clientY - start.y),
+    });
+  };
+
+  const onSnipUp = async () => {
+    const sel = snipSel;
+    snipStartRef.current = null;
+    try {
+      if (!sel || sel.w < 4 || sel.h < 4) {
+        invoke('cancel_snip').catch(() => {});
+      } else {
+        // e.clientX/Y are CSS px relative to the overlay window, which exactly covers
+        // the captured monitor — physical = logical × scaleFactor.
+        const scale = await getCurrentWebviewWindow().scaleFactor();
+        await invoke('finish_snip', { x: sel.x, y: sel.y, width: sel.w, height: sel.h, scale });
+      }
+    } catch (err) {
+      console.error(err);
+    }
+    snipActiveRef.current = false;
+    setSnipSel(null);
+    setSnipImage(null);
+    setMode('idle');
+  };
 
   // ── Volume Controls ──
   const sendVolume = useTrailingThrottle((newVol: number) => {
@@ -908,8 +980,18 @@ function OverlayApp() {
         )}
       </AnimatePresence>
 
+      {/* Region Snip Layer */}
+      {mode === 'snip' && snipImage && (
+        <div className="snip-layer" onMouseDown={onSnipDown} onMouseMove={onSnipMove} onMouseUp={onSnipUp}>
+          <img src={snipImage} className="snip-bg" draggable={false} alt="" />
+          {snipSel && snipSel.w > 0 && snipSel.h > 0 && (
+            <div className="snip-rect" style={{ left: snipSel.x, top: snipSel.y, width: snipSel.w, height: snipSel.h }} />
+          )}
+        </div>
+      )}
+
       {/* Volume / Brightness Overlay */}
-      {mode !== 'splash' && mode !== 'updating' && (
+      {mode !== 'splash' && mode !== 'updating' && mode !== 'snip' && (
         <div style={{ zoom: scale, height: '100%', display: 'flex', alignItems: 'center', justifyContent: isLeft ? 'flex-start' : 'flex-end', width: '100%' }}>
           <AnimatePresence
             mode="wait"

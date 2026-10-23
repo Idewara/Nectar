@@ -143,6 +143,9 @@ pub static LAST_BRIGHTNESS_CHANGE: AtomicI64 = AtomicI64::new(0);
 pub static ANY_MEDIA_PLAYING: AtomicBool = AtomicBool::new(false);
 pub static LAST_START_TOGGLE_MS: AtomicI64 = AtomicI64::new(0);
 pub static OVERLAY_IN_SPLASH: AtomicBool = AtomicBool::new(false);
+/// Region-select snip in progress: the mouse hook leaves the overlay clickable and
+/// Nectar windows stay hidden until the snip finishes or is cancelled.
+pub static SNIP_ACTIVE: AtomicBool = AtomicBool::new(false);
 pub static CURRENT_FOREGROUND_FULLSCREEN: AtomicBool = AtomicBool::new(false);
 pub static CURRENT_FOREGROUND_MAXIMIZED: AtomicBool = AtomicBool::new(false);
 

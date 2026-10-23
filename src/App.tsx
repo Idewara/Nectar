@@ -2144,10 +2144,14 @@ function App() {
                             setCapturing(false);
                           }
                         }}
-                        onContextMenu={(e) => {
+                        onContextMenu={async (e) => {
                           e.preventDefault();
                           e.stopPropagation();
-                          invoke("open_snipping_tool").catch(console.error);
+                          try {
+                            const mon = await currentMonitor();
+                            if (!mon) return;
+                            await invoke("start_snip", { region: { x: mon.position.x, y: mon.position.y, width: mon.size.width, height: mon.size.height } });
+                          } catch (err) { console.error(err); }
                         }}
                       >
                         {shotOk ? <Check size={14} strokeWidth={2.5} /> : <Camera size={14} strokeWidth={2.5} />}
