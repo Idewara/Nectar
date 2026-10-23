@@ -21,6 +21,8 @@ import {
   MemoryStick,
   HardDrive,
   ArrowUpDown,
+  Camera,
+  Check,
 } from "lucide-react";
 
 // Timer chime, synthesized with Web Audio so there's no asset. The context is made on the
@@ -453,6 +455,8 @@ function App() {
     return raw;
   });
   const [dndActive, setDndActive] = useState(false);
+  const [capturing, setCapturing] = useState(false);
+  const [shotOk, setShotOk] = useState(false);
   const [dockEnabled, setDockEnabled] = useState(() => localStorage.getItem("nectar-dock-enabled") !== "false");
   const [isNotchHovered, setIsNotchHovered] = useState(false);
 
@@ -2117,6 +2121,26 @@ function App() {
                         onClick={(e) => { e.stopPropagation(); invoke("open_notification_center"); }}
                       >
                         <BellIcon />
+                      </button>
+                      <button
+                        className="cc-circular-btn"
+                        title="Screenshot"
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          if (capturing) return;
+                          setCapturing(true);
+                          try {
+                            await invoke("take_screenshot");
+                            setShotOk(true);
+                            setTimeout(() => setShotOk(false), 1500);
+                          } catch (err) {
+                            console.error(err);
+                          } finally {
+                            setCapturing(false);
+                          }
+                        }}
+                      >
+                        {shotOk ? <Check size={14} strokeWidth={2.5} /> : <Camera size={14} strokeWidth={2.5} />}
                       </button>
                       <button
                         className="cc-circular-btn"

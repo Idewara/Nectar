@@ -16,6 +16,7 @@ mod caldav;
 mod calendar_sync;
 mod ics;
 mod active_look;
+mod screenshot;
 
 use tauri::Manager;
 use windows::Win32::System::Console::SetConsoleCtrlHandler;
@@ -188,7 +189,8 @@ fn main() {
             calendar_sync::caldav_get_cache,
             ics::ics_add_link,
             ics::ics_remove_link,
-            ics::ics_detect
+            ics::ics_detect,
+            screenshot::take_screenshot
         ])
         .setup(|app| {
             init_taskbar_marker(app.handle());
