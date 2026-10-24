@@ -1,19 +1,17 @@
 import { motion, AnimatePresence } from 'framer-motion';
-import { Music, LayoutGrid, Calendar, FolderDown, StickyNote, Coffee, Settings, X } from 'lucide-react';
+import { Home, LayoutGrid, FolderDown, StickyNote, Coffee, Settings, X } from 'lucide-react';
 import type { CaldavState } from '../../hooks/useCaldav';
-import { MusicTab, type DashboardMediaInfo } from './tabs/MusicTab';
-import { CalendarTab } from './tabs/CalendarTab';
+import { HomeTab, type DashboardMediaInfo } from './tabs/HomeTab';
 import { WidgetsTab } from './tabs/WidgetsTab';
 import { FilesTab } from './tabs/FilesTab';
 import { NotesTab } from './tabs/NotesTab';
 import './Dashboard.css';
 
-export type DashboardTab = 'music' | 'widgets' | 'calendar' | 'files' | 'notes';
+export type DashboardTab = 'home' | 'widgets' | 'files' | 'notes';
 
-const TABS: { id: DashboardTab; icon: typeof Music; label: string }[] = [
-  { id: 'music', icon: Music, label: 'Music' },
+const TABS: { id: DashboardTab; icon: typeof Home; label: string }[] = [
+  { id: 'home', icon: Home, label: 'Home' },
   { id: 'widgets', icon: LayoutGrid, label: 'Widgets' },
-  { id: 'calendar', icon: Calendar, label: 'Calendar' },
   { id: 'files', icon: FolderDown, label: 'Files' },
   { id: 'notes', icon: StickyNote, label: 'Notes' },
 ];
@@ -113,16 +111,17 @@ export function Dashboard({
             exit={{ opacity: 0, scale: 0.99, transition: { duration: 0.08 } }}
             transition={{ type: 'spring', stiffness: 500, damping: 32 }}
           >
-            {activeTab === 'music' && (
-              <MusicTab
+            {activeTab === 'home' && (
+              <HomeTab
                 mediaInfo={mediaInfo}
                 albumArtUrl={albumArtUrl}
                 albumArtKey={albumArtKey}
                 isPlaying={isPlaying}
                 onTogglePlayPause={onTogglePlayPause}
+                caldav={caldav}
+                hour12={hour12}
               />
             )}
-            {activeTab === 'calendar' && <CalendarTab caldav={caldav} hour12={hour12} />}
             {activeTab === 'widgets' && <WidgetsTab dndActive={dndActive} onToggleDnd={onToggleDnd} />}
             {activeTab === 'files' && <FilesTab />}
             {activeTab === 'notes' && <NotesTab />}

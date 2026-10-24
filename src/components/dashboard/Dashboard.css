@@ -554,141 +554,117 @@
   color: var(--nectar-text-muted, rgba(255, 255, 255, 0.5));
 }
 
-/* ── Music tab ── */
+/* ── Home tab (3 cards) ── */
 
-.dash-music {
-  display: flex;
-  align-items: center;
-  gap: 18px;
+.dash-home {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 12px;
   width: 100%;
   height: 100%;
-  padding: 12px 44px 12px 18px;
+  padding: 2px;
   box-sizing: border-box;
 }
 
-.dash-music-art {
-  width: 132px;
-  height: 132px;
-  border-radius: 14px;
+.home-card {
+  background: var(--nectar-group-bg, rgba(255, 255, 255, 0.045));
+  border-radius: 16px;
+  padding: 14px;
+  min-width: 0;
   overflow: hidden;
-  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Music card */
+
+.home-music-top {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  min-width: 0;
+}
+
+.home-music-art {
+  width: 64px;
+  height: 64px;
+  border-radius: 12px;
   background: var(--nectar-group-bg, rgba(255, 255, 255, 0.06));
   display: flex;
   align-items: center;
   justify-content: center;
+  overflow: hidden;
+  flex-shrink: 0;
+  color: var(--nectar-text-muted, rgba(255, 255, 255, 0.5));
 }
 
-.dash-music-art img {
+.home-music-art img {
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
 
-.dash-music-art-placeholder {
-  color: var(--nectar-text-muted, rgba(255, 255, 255, 0.5));
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.dash-music-main {
-  flex: 1;
+.home-music-meta {
   min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.dash-music-meta {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  min-width: 0;
 }
 
-.dash-marquee-wrap {
-  overflow: hidden;
-  width: 100%;
-}
-
-.dash-music-title {
-  font-size: 17px;
+.home-music-title {
+  font-size: 15px;
   font-weight: 600;
   color: var(--nectar-text, #fff);
   white-space: nowrap;
-  display: inline-block;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.dash-marquee {
-  animation: dash-marquee-scroll var(--scroll-duration, 8s) linear infinite;
-}
-
-@keyframes dash-marquee-scroll {
-  0%, 15% { transform: translateX(0); }
-  85%, 100% { transform: translateX(var(--scroll-distance, 0)); }
-}
-
-.dash-music-artist {
-  font-size: 13px;
+.home-music-sub {
+  font-size: 12px;
   color: var(--nectar-text-muted, rgba(255, 255, 255, 0.6));
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.dash-music-progress-row {
+.home-music-progress {
+  margin-top: auto;
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  gap: 4px;
 }
 
-.dash-music-time {
-  font-size: 11px;
-  color: var(--nectar-text-muted, rgba(255, 255, 255, 0.6));
-  font-variant-numeric: tabular-nums;
-  min-width: 34px;
-}
-
-.dash-music-time:last-child {
-  text-align: right;
-}
-
-.dash-music-bar {
-  position: relative;
-  flex: 1;
-  height: 4px;
+.home-music-track {
+  height: 3px;
   border-radius: 2px;
-  background: var(--nectar-border, rgba(255, 255, 255, 0.12));
+  background: var(--nectar-group-bg, rgba(255, 255, 255, 0.1));
+  overflow: hidden;
 }
 
-.dash-music-bar-fill {
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
+.home-music-fill {
+  height: 100%;
   border-radius: 2px;
   background: var(--nectar-accent, #007aff);
 }
 
-.dash-music-seek {
-  position: absolute;
-  top: -6px;
-  bottom: -6px;
-  left: 0;
-  width: 100%;
-  height: auto;
-  opacity: 0;
-  cursor: pointer;
-  margin: 0;
+.home-music-times {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--nectar-text-muted, rgba(255, 255, 255, 0.6));
+  font-variant-numeric: tabular-nums;
 }
 
-.dash-music-controls {
+.home-music-controls {
   display: flex;
+  justify-content: center;
   align-items: center;
   gap: 18px;
+  margin-top: 6px;
 }
 
-.dash-music-btn {
+.home-music-btn {
   background: none;
   border: none;
   color: var(--nectar-text, #fff);
@@ -701,41 +677,141 @@
   transition: background 0.15s;
 }
 
-.dash-music-btn:hover {
-  background: var(--nectar-group-bg, rgba(255, 255, 255, 0.06));
+.home-music-btn:hover {
+  background: var(--nectar-group-bg, rgba(255, 255, 255, 0.08));
 }
 
-.dash-music-play {
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
+/* Calendar card */
+
+.home-cal-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.home-cal-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--nectar-text, #fff);
+}
+
+.home-cal-title span {
+  font-weight: 400;
+  color: var(--nectar-text-muted, rgba(255, 255, 255, 0.6));
+}
+
+.home-cal-add {
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
   border: none;
-  background: var(--nectar-text, #fff);
-  color: var(--nectar-bg-expanded, #000);
+  background: transparent;
+  color: var(--nectar-text-muted, rgba(255, 255, 255, 0.6));
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
+  transition: background 0.15s, color 0.15s;
 }
 
-.dash-music-empty {
-  width: 100%;
-  height: 100%;
+.home-cal-add:hover {
+  background: var(--nectar-group-bg, rgba(255, 255, 255, 0.08));
+  color: var(--nectar-text, #fff);
+}
+
+.home-cal-week {
+  margin-top: 12px;
   display: flex;
   flex-direction: column;
+  gap: 6px;
+}
+
+.home-cal-dow,
+.home-cal-dates {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  text-align: center;
+}
+
+.home-cal-dow span {
+  font-size: 9px;
+  color: var(--nectar-text-muted, rgba(255, 255, 255, 0.5));
+}
+
+.home-cal-dates span {
+  font-size: 12px;
+  color: var(--nectar-text, #fff);
+  padding: 2px 0;
+  border-radius: 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+.home-cal-dates .home-cal-today {
+  background: #f5483b;
+  color: #fff;
+  font-weight: 600;
+}
+
+.home-cal-foot {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 10px;
+}
+
+.home-cal-empty {
+  font-size: 12px;
+  color: var(--nectar-text-muted, rgba(255, 255, 255, 0.6));
+}
+
+.home-cal-link {
+  background: none;
+  border: none;
+  padding: 0;
+  text-align: left;
+  font-size: 12px;
+  color: var(--nectar-accent, #007aff);
+  cursor: pointer;
+}
+
+.home-cal-link:hover {
+  text-decoration: underline;
+}
+
+.home-cal-event {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.home-cal-event-time {
+  font-size: 11px;
+  color: var(--nectar-text-muted, rgba(255, 255, 255, 0.6));
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.home-cal-event-title {
+  font-size: 12px;
+  color: var(--nectar-text, #fff);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Mirror card */
+
+.home-mirror {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  color: var(--nectar-text-muted, rgba(255, 255, 255, 0.5));
+  color: var(--nectar-text-muted, rgba(255, 255, 255, 0.6));
+}
+
+.home-mirror span {
   font-size: 13px;
 }
 
-/* ── Calendar tab ── */
-
-.dashboard-calendar-tab {
-  width: 100%;
-  height: 100%;
-  overflow: auto;
-  padding: 8px 12px;
-  box-sizing: border-box;
-}
+/* ── Widgets tab ── */

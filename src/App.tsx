@@ -460,7 +460,7 @@ function App() {
   const [capturing, setCapturing] = useState(false);
   const [shotOk, setShotOk] = useState(false);
   const [dashboardOpen, setDashboardOpen] = useState(false);
-  const [dashboardTab, setDashboardTab] = useState<DashboardTab>('widgets');
+  const [dashboardTab, setDashboardTab] = useState<DashboardTab>('home');
   const dashboardCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [dockEnabled, setDockEnabled] = useState(() => localStorage.getItem("nectar-dock-enabled") !== "false");
   const [isNotchHovered, setIsNotchHovered] = useState(false);
@@ -901,7 +901,7 @@ function App() {
         dashboardCloseTimerRef.current = null;
       }
       if (!dashboardOpen) {
-        setDashboardTab(mediaInfo.has_media && isPlaying ? 'music' : 'widgets');
+        setDashboardTab('home');
       }
       setDashboardOpen(!dashboardOpen);
     };
