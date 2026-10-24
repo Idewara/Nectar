@@ -1527,7 +1527,7 @@ function App() {
 
   // Calculate width dynamically based on enabled features
   const getDynamicWidth = () => {
-    if (dashboardOpen) return 1040;
+    if (dashboardOpen) return 900;
     if (isCalendarMode) return settingsCalendarEnabled && showClockColumn ? 480 : settingsCalendarEnabled ? 310 : 270;
     if (nectarMode === 'command-center' && isHovered) {
       const totalWidgets = statusWidgets.left.length + statusWidgets.right.length;
@@ -1555,7 +1555,7 @@ function App() {
   };
 
   const getDynamicHeight = () => {
-    if (dashboardOpen) return 340;
+    if (dashboardOpen) return 270;
     if (!isExpanded || isHidden) {
       return isImpacted ? 28.9 : 44.2;
     }

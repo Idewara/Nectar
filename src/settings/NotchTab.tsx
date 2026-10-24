@@ -15,6 +15,7 @@ import {
   Hourglass,
   Timer,
   BellRing,
+  SunMoon,
 } from "lucide-react";
 import { SettingRow } from "./SettingRow";
 import { Dropdown } from "./Dropdown";
@@ -66,6 +67,10 @@ interface NotchTabProps {
   statusWidgets: WidgetConfig;
   handleWidgetsChange: (config: WidgetConfig) => void;
   hasBattery: boolean;
+  dayStart: string;
+  setDayStartValue: (v: string) => void;
+  dayEnd: string;
+  setDayEndValue: (v: string) => void;
   onOpenCalendarSync: () => void;
 }
 
@@ -112,6 +117,10 @@ export function NotchTab({
   statusWidgets,
   handleWidgetsChange,
   hasBattery,
+  dayStart,
+  setDayStartValue,
+  dayEnd,
+  setDayEndValue,
   onOpenCalendarSync,
 }: NotchTabProps) {
   const caldav = useCaldav();
@@ -284,6 +293,26 @@ export function NotchTab({
               <input type="checkbox" checked={weatherEnabled} onChange={toggleWeather} />
               <span className="slider"></span>
             </label>
+          </div>
+        </SettingRow>
+
+        <SettingRow icon={SunMoon} label="Day Progress" desc="Day card range in the dashboard (HH:MM)">
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <input
+              type="text"
+              style={{ width: 52 }}
+              value={dayStart}
+              placeholder="06:00"
+              onChange={(e) => setDayStartValue(e.target.value)}
+            />
+            <span>–</span>
+            <input
+              type="text"
+              style={{ width: 52 }}
+              value={dayEnd}
+              placeholder="22:00"
+              onChange={(e) => setDayEndValue(e.target.value)}
+            />
           </div>
         </SettingRow>
 

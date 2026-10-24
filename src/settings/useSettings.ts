@@ -52,6 +52,8 @@ export function useSettings() {
   );
   const [tempUnitFahrenheit, setTempUnitFahrenheit] = useState(false);
   const [cityName, setCityName] = useState("");
+  const [dayStart, setDayStart] = useState(() => localStorage.getItem("nectar-day-start") || "06:00");
+  const [dayEnd, setDayEnd] = useState(() => localStorage.getItem("nectar-day-end") || "22:00");
   const [citySearchResults, setCitySearchResults] = useState<
     Array<{ name: string; country: string; latitude: number; longitude: number }>
   >([]);
@@ -178,6 +180,8 @@ export function useSettings() {
       apply(getVal("nectar-dock-mixed-reorder"), setDockMixedReorder, readBool);
 
       apply(getVal("nectar-temp-unit"), setTempUnitFahrenheit, (v) => v === "fahrenheit");
+      apply(getVal("nectar-day-start"), setDayStart, (v) => v);
+      apply(getVal("nectar-day-end"), setDayEnd, (v) => v);
       apply(getVal("nectar-scale"), setScale, parseFloat);
       apply(getVal("nectar-low-battery-threshold"), setLowBatteryThreshold, parseInt);
 
@@ -284,6 +288,8 @@ export function useSettings() {
     "nectar-low-battery-threshold": setLowBatteryThreshold,
     "nectar-scale": setScale,
     "nectar-temp-unit": (v) => setTempUnitFahrenheit(v === "fahrenheit"),
+    "nectar-day-start": setDayStart,
+    "nectar-day-end": setDayEnd,
     "nectar-auto-update": setAutoUpdate,
     "nectar-volume-overlay-enabled": setVolumeOverlayEnabled,
     "nectar-volume-edge-enabled": setVolumeEdgeEnabled,
@@ -519,6 +525,16 @@ export function useSettings() {
     const next = !tempUnitFahrenheit;
     setTempUnitFahrenheit(next);
     saveSetting("nectar-temp-unit", next ? "fahrenheit" : "celsius");
+  };
+
+  const setDayStartValue = (v: string) => {
+    setDayStart(v);
+    saveSetting("nectar-day-start", v);
+  };
+
+  const setDayEndValue = (v: string) => {
+    setDayEnd(v);
+    saveSetting("nectar-day-end", v);
   };
 
   const toggleDock = () => {
@@ -879,6 +895,10 @@ export function useSettings() {
     toggleWeather,
     tempUnitFahrenheit,
     toggleTempUnit,
+    dayStart,
+    setDayStartValue,
+    dayEnd,
+    setDayEndValue,
     cityName,
     setCityName,
     citySearchResults,

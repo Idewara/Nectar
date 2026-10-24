@@ -17,6 +17,7 @@ mod calendar_sync;
 mod ics;
 mod active_look;
 mod screenshot;
+mod notes;
 
 use tauri::Manager;
 use windows::Win32::System::Console::SetConsoleCtrlHandler;
@@ -196,7 +197,13 @@ fn main() {
             screenshot::snip_freeze,
             screenshot::finish_snip,
             screenshot::cancel_snip,
-            monitors::begin_monitor_drag
+            monitors::begin_monitor_drag,
+            toggle_volume_mute,
+            set_mic_mute,
+            lock_workstation,
+            notes::notes_list,
+            notes::notes_save,
+            notes::notes_delete
         ])
         .setup(|app| {
             init_taskbar_marker(app.handle());

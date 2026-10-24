@@ -3,6 +3,9 @@ import { Music, LayoutGrid, Calendar, FolderDown, StickyNote, Coffee, Settings, 
 import type { CaldavState } from '../../hooks/useCaldav';
 import { MusicTab, type DashboardMediaInfo } from './tabs/MusicTab';
 import { CalendarTab } from './tabs/CalendarTab';
+import { WidgetsTab } from './tabs/WidgetsTab';
+import { FilesTab } from './tabs/FilesTab';
+import { NotesTab } from './tabs/NotesTab';
 import './Dashboard.css';
 
 export type DashboardTab = 'music' | 'widgets' | 'calendar' | 'files' | 'notes';
@@ -120,11 +123,9 @@ export function Dashboard({
               />
             )}
             {activeTab === 'calendar' && <CalendarTab caldav={caldav} hour12={hour12} />}
-            {(activeTab === 'widgets' || activeTab === 'files' || activeTab === 'notes') && (
-              <div className="dashboard-placeholder">
-                <span>Coming soon</span>
-              </div>
-            )}
+            {activeTab === 'widgets' && <WidgetsTab dndActive={dndActive} onToggleDnd={onToggleDnd} />}
+            {activeTab === 'files' && <FilesTab />}
+            {activeTab === 'notes' && <NotesTab />}
           </motion.div>
         </AnimatePresence>
       </div>

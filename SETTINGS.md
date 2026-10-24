@@ -151,6 +151,16 @@ Example:
 }
 ```
 
+### Dashboard
+
+The dashboard opens when you click the notch's empty area (dragging it more than ~40px instead moves Nectar to another monitor).
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `nectar-day-start` | `"HH:MM"` | `"06:00"` | Start of your day for the dashboard Day card progress bar. Set in Settings › Notch › Day Progress. |
+| `nectar-day-end` | `"HH:MM"` | `"22:00"` | End of your day ("bedtime") for the dashboard Day card. Outside the range the card counts down "until morning". |
+| `nectar-shelf-files` | JSON string | `"[]"` | File paths pinned to the dashboard Files shelf (drag-and-drop or the `+` button add to it). |
+
 ### System
 
 | Key | Type | Default | Description |

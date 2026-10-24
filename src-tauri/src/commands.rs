@@ -2885,6 +2885,64 @@ pub async fn get_volume_state() -> Result<VolumeChangeEvent, String> {
     .map_err(|e| e.to_string())?
 }
 
+/// Toggles master mute through the system worker (same path as the hardware mute key).
+#[tauri::command]
+pub fn toggle_volume_mute() {
+    if let Some(sender) = COMMAND_SENDER.get() {
+        let _ = sender.send(crate::types::SystemCommand::VolumeMute);
+    }
+}
+
+/// Mutes or un-mutes the default microphone (capture endpoint). Self-contained COM —
+/// mirrors get_volume_state but on eCapture.
+#[tauri::command]
+pub async fn set_mic_mute(muted: bool) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || unsafe {
+        use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume;
+        use windows::Win32::Media::Audio::{eCapture, eConsole, IMMDeviceEnumerator};
+        use windows::Win32::System::Com::{
+            CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_ALL, COINIT_MULTITHREADED,
+        };
+
+        let com_initialized = CoInitializeEx(None, COINIT_MULTITHREADED).is_ok();
+        let result = (|| -> Result<(), String> {
+            let enumerator: IMMDeviceEnumerator = CoCreateInstance(
+                &windows::Win32::Media::Audio::MMDeviceEnumerator,
+                None,
+                CLSCTX_ALL,
+            )
+            .map_err(|e| e.to_string())?;
+            let device = enumerator
+                .GetDefaultAudioEndpoint(eCapture, eConsole)
+                .map_err(|e| format!("no default microphone: {e}"))?;
+            let endpoint: IAudioEndpointVolume = device
+                .Activate(CLSCTX_ALL, None)
+                .map_err(|e| e.to_string())?;
+            endpoint
+                .SetMute(windows::core::BOOL(muted as i32), std::ptr::null())
+                .map_err(|e| e.to_string())?;
+            Ok(())
+        })();
+        if com_initialized {
+            CoUninitialize();
+        }
+        result
+    })
+    .await
+    .map_err(|e| format!("mic mute task failed: {e}"))?
+}
+
+/// Locks the workstation. Shelling out to rundll32 avoids a new windows-crate feature flag.
+#[tauri::command]
+pub fn lock_workstation() {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let _ = std::process::Command::new("rundll32.exe")
+        .args(["user32.dll,LockWorkStation"])
+        .creation_flags(CREATE_NO_WINDOW)
+        .spawn();
+}
+
 #[tauri::command]
 pub fn get_brightness() -> u32 {
     crate::state::CURRENT_BRIGHTNESS.load(std::sync::atomic::Ordering::Relaxed)

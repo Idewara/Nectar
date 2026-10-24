@@ -170,6 +170,10 @@ function SettingsApp() {
               statusWidgets={settings.statusWidgets}
               handleWidgetsChange={settings.handleWidgetsChange}
               hasBattery={settings.hasBattery}
+              dayStart={settings.dayStart}
+              setDayStartValue={settings.setDayStartValue}
+              dayEnd={settings.dayEnd}
+              setDayEndValue={settings.setDayEndValue}
             />
           )}
           {activeTab === "dock" && (
