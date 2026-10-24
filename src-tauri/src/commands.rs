@@ -2919,7 +2919,7 @@ pub async fn set_mic_mute(muted: bool) -> Result<(), String> {
                 .Activate(CLSCTX_ALL, None)
                 .map_err(|e| e.to_string())?;
             endpoint
-                .SetMute(windows::core::BOOL(muted as i32), std::ptr::null())
+                .SetMute(muted, std::ptr::null())
                 .map_err(|e| e.to_string())?;
             Ok(())
         })();
