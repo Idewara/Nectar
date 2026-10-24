@@ -91,25 +91,38 @@ function TogglesCard({ dndActive, onToggleDnd }: WidgetsTabProps) {
     }
   };
 
-  const toggles: { icon: typeof Wifi; label: string; active: boolean; onClick: () => void }[] = [
+  const snip = async () => {
+    try {
+      const mon = await currentMonitor();
+      if (!mon) return;
+      await invoke('start_snip', {
+        region: { x: mon.position.x, y: mon.position.y, width: mon.size.width, height: mon.size.height },
+      });
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const toggles: { icon: typeof Wifi; label: string; active: boolean; onClick: () => void; onContextMenu?: () => void }[] = [
     { icon: Wifi, label: 'Wi-Fi', active: wifiOn, onClick: toggleWifi },
     { icon: Bluetooth, label: 'Bluetooth', active: btOn, onClick: toggleBluetooth },
     { icon: Coffee, label: 'Do Not Disturb', active: dndActive, onClick: onToggleDnd },
     { icon: SunMoon, label: lightTheme ? 'Light theme' : 'Dark theme', active: lightTheme, onClick: toggleTheme },
     { icon: micMuted ? MicOff : Mic, label: micMuted ? 'Mic muted' : 'Mic on', active: !micMuted, onClick: toggleMic },
     { icon: volMuted ? VolumeX : Volume2, label: volMuted ? 'Sound muted' : 'Sound on', active: !volMuted, onClick: toggleVolumeMute },
-    { icon: Camera, label: 'Screenshot', active: false, onClick: () => { void screenshot(); } },
+    { icon: Camera, label: 'Screenshot (klik) · Pilih area (klik kanan)', active: false, onClick: () => { void screenshot(); }, onContextMenu: () => { void snip(); } },
     { icon: Lock, label: 'Lock', active: false, onClick: () => { invoke('lock_workstation').catch(() => {}); } },
   ];
 
   return (
     <div className="dash-card dash-toggles">
-      {toggles.map(({ icon: Icon, label, active, onClick }) => (
+      {toggles.map(({ icon: Icon, label, active, onClick, onContextMenu }) => (
         <button
           key={label}
           className={`dash-toggle ${active ? 'active' : ''}`}
           title={label}
           onClick={(e) => { e.stopPropagation(); onClick(); }}
+          onContextMenu={onContextMenu ? (e) => { e.preventDefault(); e.stopPropagation(); onContextMenu(); } : undefined}
         >
           <Icon size={16} strokeWidth={2.2} />
         </button>

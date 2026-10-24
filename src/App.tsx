@@ -1,21 +1,17 @@
-import { motion, AnimatePresence, useAnimation } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { useEffect, useState, useCallback, useRef, memo } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { currentMonitor } from "@tauri-apps/api/window";
 import type { UpdateCheckResult } from "./updater";
 import "./App.css";
 import { initTheme } from "./theme";
-import { PlayIcon, PauseIcon, SkipBackIcon, SkipForwardIcon, VolumeLowIcon, VolumeHighIcon, MusicNoteIcon, AudioOutputIcon } from "./icons";
-import { CompactMediaPlayer } from "./CompactMediaPlayer";
+import { PlayIcon, PauseIcon, MusicNoteIcon } from "./icons";
 import { useWeather } from "./hooks/useWeather";
 import { useSettingsSync } from "./hooks/useSettingsSync";
-import { useTrailingThrottle } from "./hooks/useTrailingThrottle";
 import { useCaldav } from "./hooks/useCaldav";
-import { NotchCalendar } from "./components/NotchCalendar";
 import { Dashboard, type DashboardTab } from "./components/dashboard/Dashboard";
-import { NotchClock, StopwatchReadout } from "./components/NotchClock";
+import { StopwatchReadout } from "./components/NotchClock";
 import { useStopwatch } from "./hooks/useStopwatch";
 import type { WidgetConfig } from "./components/StatusWidgetConfig";
 import {
@@ -23,8 +19,6 @@ import {
   MemoryStick,
   HardDrive,
   ArrowUpDown,
-  Camera,
-  Check,
 } from "lucide-react";
 
 // Timer chime, synthesized with Web Audio so there's no asset. The context is made on the
@@ -80,28 +74,6 @@ const playTimerChime = () => {
 };
 
 // Simple SVG icons
-function WifiIcon({ enabled, connected }: { enabled: boolean; connected: boolean }) {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" opacity={!enabled ? 0.4 : connected ? 1 : 0.7}>
-      <path d="M5 12.55a11 11 0 0 1 14.08 0" />
-      <path d="M1.42 9a16 16 0 0 1 21.16 0" />
-      <path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
-      <line x1="12" y1="20" x2="12.01" y2="20" />
-    </svg>
-  );
-}
-
-function TrayIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3" y="3" width="6" height="6" rx="1" />
-      <rect x="15" y="3" width="6" height="6" rx="1" />
-      <rect x="15" y="15" width="6" height="6" rx="1" />
-      <rect x="3" y="15" width="6" height="6" rx="1" />
-    </svg>
-  );
-}
-
 function BatteryIcon({ charging, level, threshold = 20 }: { charging: boolean; level: number; threshold?: number }) {
   const percentage = Math.min(Math.max(level, 0), 100);
 
@@ -237,11 +209,6 @@ function UpdateActivity() {
   );
 }
 
-interface WifiStatus {
-  enabled: boolean;
-  connected: boolean;
-}
-
 interface MediaInfo {
   title: string;
   artist: string;
@@ -253,52 +220,6 @@ interface MediaInfo {
   seek_enabled?: boolean;
   position_updated_at?: number;
 }
-
-const MARQUEE_SPEED = 30; // px/s — constant for all titles
-const MARQUEE_MIN_DURATION = 5; // floor so short titles don't flicker
-
-const TitleMarquee = ({ title }: { title: string }) => {
-  const textRef = useRef<HTMLSpanElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [isOverflowing, setIsOverflowing] = useState(false);
-  const [scrollDistance, setScrollDistance] = useState(0);
-  const [scrollDuration, setScrollDuration] = useState(8);
-
-  useEffect(() => {
-    const check = () => {
-      if (textRef.current && containerRef.current) {
-        const textWidth = textRef.current.scrollWidth;
-        const containerWidth = containerRef.current.clientWidth;
-        const overflow = textWidth > containerWidth;
-        setIsOverflowing(overflow);
-        if (overflow) {
-          const distance = textWidth - containerWidth;
-          setScrollDistance(distance);
-          setScrollDuration(Math.max(distance / MARQUEE_SPEED, MARQUEE_MIN_DURATION));
-        }
-      }
-    };
-    check();
-    const observer = new ResizeObserver(check);
-    if (containerRef.current) observer.observe(containerRef.current);
-    return () => observer.disconnect();
-  }, [title]);
-
-  return (
-    <div ref={containerRef} className="premium-title-wrap" style={{ width: '100%', overflow: 'hidden' }}>
-      <span
-        ref={textRef}
-        className={`premium-title ${isOverflowing ? 'marquee' : ''}`}
-        style={{
-          '--scroll-distance': isOverflowing ? `-${scrollDistance}px` : undefined,
-          '--scroll-duration': `${scrollDuration}s`,
-        } as React.CSSProperties}
-      >
-        {title}
-      </span>
-    </div>
-  );
-};
 
 
 
@@ -380,17 +301,6 @@ function App() {
   });
   const [albumArtUrl, setAlbumArtUrl] = useState<string | null>(null);
   const [albumArtKey, setAlbumArtKey] = useState(0);
-  const [volume, setVolume] = useState(0.5);
-  const [isMuted, setIsMuted] = useState(false);
-  // Sliders show 0 while muted, like the overlay.
-  const displayVolume = isMuted ? 0 : volume;
-  // null until the first fetch so the pill doesn't flash a wrong default.
-  const [wifiStatus, setWifiStatus] = useState<WifiStatus | null>(null);
-  const wifiEnabled = wifiStatus?.enabled ?? false;
-  const wifiConnected = wifiStatus?.connected ?? false;
-  const [bluetoothEnabled, setBluetoothEnabled] = useState(true);
-  const [batterySaverEnabled, setBatterySaverEnabled] = useState(false);
-  const [currentBrightness, setCurrentBrightness] = useState(50);
 
   // System metrics for status widgets
   const [cpuUsage, setCpuUsage] = useState(0);
@@ -457,8 +367,6 @@ function App() {
     return raw;
   });
   const [dndActive, setDndActive] = useState(false);
-  const [capturing, setCapturing] = useState(false);
-  const [shotOk, setShotOk] = useState(false);
   const [dashboardOpen, setDashboardOpen] = useState(false);
   const [dashboardTab, setDashboardTab] = useState<DashboardTab>('home');
   const dashboardCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -615,7 +523,6 @@ function App() {
 
   // Settings state
   const [settingsWeatherEnabled, setSettingsWeatherEnabled] = useState(() => localStorage.getItem("nectar-weather-enabled") !== "false");
-  const [settingsCalendarEnabled, setSettingsCalendarEnabled] = useState(() => localStorage.getItem("nectar-calendar-enabled") !== "false");
   const [settingsTimerEnabled, setSettingsTimerEnabled] = useState(
     () => (localStorage.getItem("nectar-timer-enabled") ?? localStorage.getItem("nectar-calendar-enabled")) !== "false",
   );
@@ -625,17 +532,12 @@ function App() {
   const [settingsStopwatchEnabled, setSettingsStopwatchEnabled] = useState(
     () => (localStorage.getItem("nectar-stopwatch-enabled") ?? localStorage.getItem("nectar-calendar-enabled")) !== "false",
   );
-  const showClockColumn = settingsTimerEnabled || settingsStopwatchEnabled;
-  const productivityEnabled = settingsCalendarEnabled || showClockColumn;
   const [settingsMusicModeEnabled, setSettingsMusicModeEnabled] = useState(() => localStorage.getItem("nectar-music-mode-enabled") !== "false");
   const [settingsMusicCompactNotch, setSettingsMusicCompactNotch] = useState(() => localStorage.getItem("nectar-music-compact-notch") !== "false");
   const [settingsVisualizerEnabled, setSettingsVisualizerEnabled] = useState(() => localStorage.getItem("nectar-visualizer-enabled") !== "false");
   const [settingsAlbumArtEnabled, setSettingsAlbumArtEnabled] = useState(() => localStorage.getItem("nectar-media-album-art-enabled") !== "false");
-  const [settingsAmbienceEnabled, setSettingsAmbienceEnabled] = useState(() => localStorage.getItem("nectar-media-ambience-enabled") !== "false");
   const [settingsCompactGlowEnabled, setSettingsCompactGlowEnabled] = useState(() => localStorage.getItem("nectar-media-compact-glow-enabled") !== "false");
   const [settingsCornersEnabled, setSettingsCornersEnabled] = useState(() => localStorage.getItem("nectar-corners-enabled") === "true");
-  const [mediaLayout, setMediaLayout] = useState<'classic' | 'compact'>(() => (localStorage.getItem("nectar-media-layout") as 'classic' | 'compact') || 'classic');
-  const [compactVolumeExpanded, setCompactVolumeExpanded] = useState(false);
 
   // Weather hook
   const { temperature, weatherCondition, weatherIcon: WeatherIcon, cityName, tempUnit } = useWeather(settingsWeatherEnabled);
@@ -662,7 +564,6 @@ function App() {
       };
 
       setSettingsWeatherEnabled(getVal("nectar-weather-enabled", "true") !== "false");
-      setSettingsCalendarEnabled(getVal("nectar-calendar-enabled", "true") !== "false");
       setSettingsTimerEnabled((getVal("nectar-timer-enabled") ?? getVal("nectar-calendar-enabled", "true")) !== "false");
       setSettingsTimerSoundEnabled(getVal("nectar-timer-sound-enabled", "true") !== "false");
       setSettingsStopwatchEnabled((getVal("nectar-stopwatch-enabled") ?? getVal("nectar-calendar-enabled", "true")) !== "false");
@@ -671,7 +572,6 @@ function App() {
       const viz = getVal("nectar-media-visualizer-enabled") ?? getVal("nectar-visualizer-enabled", "true");
       setSettingsVisualizerEnabled(viz !== "false");
       setSettingsAlbumArtEnabled(getVal("nectar-media-album-art-enabled", "true") !== "false");
-      setSettingsAmbienceEnabled(getVal("nectar-media-ambience-enabled", "true") !== "false");
       setSettingsCompactGlowEnabled(getVal("nectar-media-compact-glow-enabled", "true") !== "false");
       setSettingsCornersEnabled(getVal("nectar-corners-enabled", "false") === "true");
       setTimeFormat24h(getVal("nectar-time-format-24h") === "true");
@@ -789,7 +689,6 @@ function App() {
   useSettingsSync(
     {
       "nectar-weather-enabled": setSettingsWeatherEnabled,
-      "nectar-calendar-enabled": setSettingsCalendarEnabled,
       "nectar-timer-enabled": setSettingsTimerEnabled,
       "nectar-timer-sound-enabled": setSettingsTimerSoundEnabled,
       "nectar-stopwatch-enabled": setSettingsStopwatchEnabled,
@@ -798,9 +697,7 @@ function App() {
       "nectar-media-visualizer-enabled": setSettingsVisualizerEnabled,
       "nectar-visualizer-enabled": setSettingsVisualizerEnabled,
       "nectar-media-album-art-enabled": setSettingsAlbumArtEnabled,
-      "nectar-media-ambience-enabled": setSettingsAmbienceEnabled,
       "nectar-media-compact-glow-enabled": setSettingsCompactGlowEnabled,
-      "nectar-media-layout": setMediaLayout,
       "nectar-corners-enabled": setSettingsCornersEnabled,
       "nectar-scale": setScale,
       "nectar-low-battery-threshold": setLowBatteryThreshold,
@@ -851,25 +748,26 @@ function App() {
     invoke("change_notch_mode", { mode: notchMode });
   }, [notchMode, windowLabel]);
 
-  const [nectarMode, setNectarMode] = useState<'music' | 'calendar' | 'command-center' | 'status'>('status');
   const caldav = useCaldav();
-
-  // Window height is now kept constant to prevent rendering layout lag and sharp corners
-
-  const wheelAccumRef = useRef(0);
-  const wheelIdleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const WHEEL_STEP_THRESHOLD = 60;
-  const WHEEL_IDLE_RESET_MS = 180;
 
   // Drag the notch's empty area >40px to move Nectar (notch + dock) to another monitor.
   // Past the threshold the backend mouse hook takes over global cursor tracking, so the
   // listeners here are removed right away; a short click (pointerup before the threshold)
-  // toggles the dashboard instead.
+  // toggles the dashboard instead — the ONLY expanded view.
   const monitorDragCleanupRef = useRef<(() => void) | null>(null);
   useEffect(() => () => {
     monitorDragCleanupRef.current?.();
     if (dashboardCloseTimerRef.current) clearTimeout(dashboardCloseTimerRef.current);
   }, []);
+
+  const toggleDashboard = () => {
+    if (dashboardCloseTimerRef.current) {
+      clearTimeout(dashboardCloseTimerRef.current);
+      dashboardCloseTimerRef.current = null;
+    }
+    if (!dashboardOpen) setDashboardTab('home');
+    setDashboardOpen(!dashboardOpen);
+  };
 
   const handleNotchMouseDown = (e: React.MouseEvent) => {
     if (e.button !== 0) return;
@@ -895,65 +793,12 @@ function App() {
     const onUp = () => {
       removeListeners();
       if (began) return;
-      // Short click on the notch's empty area toggles the dashboard.
-      if (dashboardCloseTimerRef.current) {
-        clearTimeout(dashboardCloseTimerRef.current);
-        dashboardCloseTimerRef.current = null;
-      }
-      if (!dashboardOpen) {
-        setDashboardTab('home');
-      }
-      setDashboardOpen(!dashboardOpen);
+      toggleDashboard();
     };
     monitorDragCleanupRef.current?.();
     monitorDragCleanupRef.current = removeListeners;
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
-  };
-
-  const handleWheel = (e: React.WheelEvent) => {
-    const target = e.target as HTMLElement;
-    if (target.closest('.calendar-grid') || target.closest('.timer-column') || target.closest('.cal-scroll')) {
-      return;
-    }
-
-    // Scroll-mode switching only applies to the compact notch, not the dashboard.
-    if (dashboardOpen) return;
-
-    if (!isHovered) return;
-
-    // Use absolute values to detect horizontal swipe gestures on trackpad
-    const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
-    if (Math.abs(delta) < 2) return; // Ignore near-zero noise
-
-    wheelAccumRef.current += delta;
-    if (wheelIdleTimeoutRef.current) clearTimeout(wheelIdleTimeoutRef.current);
-    wheelIdleTimeoutRef.current = setTimeout(() => { wheelAccumRef.current = 0; }, WHEEL_IDLE_RESET_MS);
-
-    if (Math.abs(wheelAccumRef.current) < WHEEL_STEP_THRESHOLD) return;
-    const direction = wheelAccumRef.current > 0 ? 1 : -1;
-    wheelAccumRef.current = 0;
-
-    // Music shifts position based on playing state:
-    // Playing: command-center → music → status → calendar (active, near command-center)
-    // Paused:  command-center → status → music → calendar (secondary, after status)
-    const musicBeforeStatus = isPlaying && mediaInfo.has_media && settingsMusicModeEnabled;
-    const modes: ('command-center' | 'status' | 'music' | 'calendar')[] = musicBeforeStatus
-      ? ['command-center', 'music', 'status', 'calendar']
-      : ['command-center', 'status', 'music', 'calendar'];
-    const availableModes = modes.filter(m => {
-      if (m === 'music' && (!settingsMusicModeEnabled || !mediaInfo.has_media)) return false;
-      if (m === 'calendar' && !productivityEnabled) return false;
-      return true;
-    });
-
-    const currentIndex = availableModes.indexOf(nectarMode);
-    if (currentIndex === -1) return;
-
-    const nextIndex = (currentIndex + direction + availableModes.length) % availableModes.length;
-    const nextMode = availableModes[nextIndex];
-    manualMusicRef.current = nextMode === 'music';
-    setNectarMode(nextMode);
   };
 
 
@@ -971,18 +816,6 @@ function App() {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const startTimerSeconds = (seconds: number) => {
-    // Unlock audio on this click so the chime can play later.
-    getTimerChimeCtx();
-    setTimerSeconds(seconds);
-    setIsTimerRunning(true);
-    setIsTimerFinished(false);
-  };
-
-  const toggleTimer = () => {
-    if (!isTimerRunning) getTimerChimeCtx();
-    setIsTimerRunning(!isTimerRunning);
-  };
   const resetTimer = () => {
     setIsTimerRunning(false);
     setTimerSeconds(0);
@@ -1025,67 +858,17 @@ function App() {
 
   const lastTrackRef = useRef<string | null>(null);
   const lastPlayingRef = useRef<boolean>(false);
-  const manualMusicRef = useRef<boolean>(false);
 
-  // Auto-switch to music mode only when a *new* track starts while playing,
-  // or when playback transitions from paused to playing.
+  // Peek the notch on media events (play start or track change).
   useEffect(() => {
     const isNewTrackWhilePlaying = mediaInfo.title !== lastTrackRef.current && isPlaying;
     const justStartedPlaying = isPlaying && !lastPlayingRef.current;
-
-    // Peek notch on media events (play start or track change)
     if (notchMode === 'peek' && (isNewTrackWhilePlaying || justStartedPlaying)) {
       triggerEventPeek(3000);
     }
-
-    // Only auto-switch if music mode is enabled
-    if (settingsMusicModeEnabled && mediaInfo.has_media && isPlaying && nectarMode !== 'calendar' && (isNewTrackWhilePlaying || justStartedPlaying)) {
-      // Switch if compact notch display is enabled OR we are hovered
-      if (settingsMusicCompactNotch || isHovered) {
-        manualMusicRef.current = false;
-        setNectarMode('music');
-      }
-    }
-
     lastTrackRef.current = mediaInfo.title;
     lastPlayingRef.current = isPlaying;
-  }, [mediaInfo.has_media, isPlaying, mediaInfo.title, settingsMusicModeEnabled, settingsMusicCompactNotch, isHovered, nectarMode, notchMode, triggerEventPeek]);
-
-  // Auto-switch back from music if music stops for 5 seconds
-  // Skip if user manually scrolled to music mode
-  useEffect(() => {
-    let timer: any;
-    if (!isPlaying && nectarMode === 'music' && !manualMusicRef.current) {
-      timer = setTimeout(() => {
-        setNectarMode('status');
-      }, 5000);
-    }
-    return () => clearTimeout(timer);
-  }, [isPlaying, nectarMode]);
-
-  useEffect(() => {
-    if (!productivityEnabled && nectarMode === 'calendar') {
-      setNectarMode('status');
-    }
-  }, [productivityEnabled, nectarMode]);
-
-  useEffect(() => {
-    if (!settingsMusicModeEnabled && nectarMode === 'music') {
-      setNectarMode('status');
-    }
-  }, [settingsMusicModeEnabled, nectarMode]);
-
-  useEffect(() => {
-    if (!settingsMusicCompactNotch && nectarMode === 'music' && !isHovered) {
-      setNectarMode('status');
-    }
-  }, [settingsMusicCompactNotch, nectarMode, isHovered]);
-
-  useEffect(() => {
-    if (settingsMusicModeEnabled && settingsMusicCompactNotch && mediaInfo.has_media && isPlaying && nectarMode === 'status' && !isHovered) {
-      setNectarMode('music');
-    }
-  }, [settingsMusicModeEnabled, settingsMusicCompactNotch, mediaInfo.has_media, isPlaying, nectarMode, isHovered]);
+  }, [mediaInfo.has_media, isPlaying, mediaInfo.title, notchMode, triggerEventPeek]);
 
   // Update time
   useEffect(() => {
@@ -1105,7 +888,7 @@ function App() {
 
     // Toggle compact timer view every 5 seconds if running
     let timerToggleInterval: any;
-    if ((isTimerRunning || stopwatch.running) && nectarMode !== 'calendar') {
+    if (isTimerRunning || stopwatch.running) {
       timerToggleInterval = setInterval(() => {
         setIsCompactTimerVisible(prev => !prev);
       }, 5000);
@@ -1117,7 +900,7 @@ function App() {
       clearInterval(interval);
       if (timerToggleInterval) clearInterval(timerToggleInterval);
     };
-  }, [isTimerRunning, stopwatch.running, nectarMode, timeFormat24h]);
+  }, [isTimerRunning, stopwatch.running, timeFormat24h]);
 
   // Battery API
   useEffect(() => {
@@ -1149,66 +932,9 @@ function App() {
     initBattery();
   }, []);
 
-  // Listen for Volume Changes
+  // Load battery capability on mount
   useEffect(() => {
-    const unlisten = listen<{ volume: number; is_muted: boolean }>("volume-change", (event) => {
-      setVolume(event.payload.volume);
-      setIsMuted(event.payload.is_muted);
-    });
-    return () => { unlisten.then(fn => fn()); };
-  }, []);
-
-  // Wi-Fi has three states (off, on, connected) and the radio state can't tell them apart.
-  // Returns false so startup can retry.
-  const refreshWifiStatus = useCallback(async (): Promise<boolean> => {
-    try {
-      setWifiStatus(await invoke<WifiStatus>("get_wifi_status"));
-      return true;
-    } catch {
-      return false;
-    }
-  }, []);
-
-  // Seed the Wi-Fi pill. The first call can fail while the WLAN service is starting, so retry.
-  useEffect(() => {
-    let cancelled = false;
-    let retryTimer: ReturnType<typeof setTimeout> | undefined;
-    const initializeWifiStatus = async (attempt: number) => {
-      const loaded = await refreshWifiStatus();
-      if (!loaded && !cancelled && attempt < 3) {
-        retryTimer = setTimeout(() => void initializeWifiStatus(attempt + 1), (attempt + 1) * 1000);
-      }
-    };
-    void initializeWifiStatus(0);
-    return () => {
-      cancelled = true;
-      if (retryTimer) clearTimeout(retryTimer);
-    };
-  }, [refreshWifiStatus]);
-
-  // Keep Wi-Fi fresh while the command center is open (keyboard toggle, Windows quick settings).
-  useEffect(() => {
-    if (nectarMode !== 'command-center') return;
-    void refreshWifiStatus();
-    const interval = setInterval(() => void refreshWifiStatus(), 5000);
-    return () => clearInterval(interval);
-  }, [nectarMode, refreshWifiStatus]);
-
-  // Load bluetooth/volume/brightness state on mount
-  useEffect(() => {
-    invoke<boolean>("get_bluetooth_state").then(setBluetoothEnabled).catch(() => { });
-    invoke<boolean>("get_battery_saver_state").then(setBatterySaverEnabled).catch(() => { });
     invoke<boolean>("has_battery").then(setHasBattery).catch(() => { });
-    invoke<{ volume: number; is_muted: boolean }>("get_volume_state")
-      .then((state) => { setVolume(state.volume); setIsMuted(state.is_muted); })
-      .catch(() => { });
-    invoke<number>("get_brightness").then(setCurrentBrightness).catch(() => { });
-
-    // Poll battery saver state every 5s (since we can't listen for changes)
-    const interval = setInterval(() => {
-      invoke<boolean>("get_battery_saver_state").then(setBatterySaverEnabled).catch(() => { });
-    }, 5000);
-    return () => clearInterval(interval);
   }, []);
 
   // Poll system metrics for status widgets
@@ -1225,14 +951,6 @@ function App() {
     fetchMetrics();
     const interval = setInterval(fetchMetrics, 3000);
     return () => clearInterval(interval);
-  }, []);
-
-  // Listen for brightness changes
-  useEffect(() => {
-    const unlisten = listen<{ brightness: number }>("brightness-change", (event) => {
-      setCurrentBrightness(event.payload.brightness);
-    });
-    return () => { unlisten.then(fn => fn()); };
   }, []);
 
   // Native Windows Media Controls - Listen for updates from background worker
@@ -1310,96 +1028,6 @@ function App() {
     }
   }, []);
 
-  // Slide-push animation for prev/next buttons
-  const prevFront = useAnimation();
-  const prevBack = useAnimation();
-  const nextFront = useAnimation();
-  const nextBack = useAnimation();
-
-  const animatePrev = useCallback(async () => {
-    prevFront.set({ x: 0 });
-    prevBack.set({ x: 30 });
-    prevFront.start({ x: -30, transition: { duration: 0.18, ease: [0.4, 0, 0.2, 1] } });
-    await prevBack.start({ x: 0, transition: { duration: 0.18, ease: [0.4, 0, 0.2, 1] } });
-    skipPrevious();
-  }, [skipPrevious, prevFront, prevBack]);
-
-  const animateNext = useCallback(async () => {
-    nextFront.set({ x: 0 });
-    nextBack.set({ x: -30 });
-    nextFront.start({ x: 30, transition: { duration: 0.18, ease: [0.4, 0, 0.2, 1] } });
-    await nextBack.start({ x: 0, transition: { duration: 0.18, ease: [0.4, 0, 0.2, 1] } });
-    skipNext();
-  }, [skipNext, nextFront, nextBack]);
-
-  const sendVolume = useTrailingThrottle((newVol: number) => {
-    invoke("set_volume", { volume: newVol }).catch(() => {});
-  }, 50);
-
-  const handleVolumeChange = useCallback((newVol: number) => {
-    setVolume(newVol);
-    // set_volume unmutes for any non-zero level.
-    setIsMuted(newVol === 0);
-    sendVolume(newVol);
-  }, [sendVolume]);
-
-
-  // Open WiFi settings
-  const openWifiSettings = useCallback(async () => {
-    try {
-      await invoke("open_wifi_settings");
-    } catch (e) {
-      console.error("Failed to open WiFi settings:", e);
-    }
-  }, []);
-
-  // WiFi toggle
-  const toggleWifi = useCallback(async () => {
-    const previous = wifiStatus;
-    const newState = !(previous?.enabled ?? false);
-    setWifiStatus({ enabled: newState, connected: newState ? (previous?.connected ?? false) : false });
-    try {
-      await invoke("set_wifi_state", { enabled: newState });
-      // The radio and association take a moment to settle.
-      setTimeout(() => void refreshWifiStatus(), 800);
-    } catch (e) {
-      setWifiStatus(previous);
-      console.error("Failed to toggle WiFi:", e);
-    }
-  }, [wifiStatus, refreshWifiStatus]);
-
-  // Bluetooth toggle
-  const toggleBluetooth = useCallback(async () => {
-    const newState = !bluetoothEnabled;
-    setBluetoothEnabled(newState);
-    try {
-      await invoke("set_bluetooth_state", { enabled: newState });
-    } catch (e) {
-      setBluetoothEnabled(!newState);
-      console.error("Failed to toggle Bluetooth:", e);
-    }
-  }, [bluetoothEnabled]);
-
-  // Battery Saver - opens settings (no public API to toggle without admin)
-  const openBatterySaverSettings = useCallback(async () => {
-    try {
-      await invoke("open_battery_saver_settings");
-    } catch (e) {
-      console.error("Failed to open Battery Saver settings:", e);
-    }
-  }, []);
-
-
-  // Brightness change with throttling
-  const sendBrightness = useTrailingThrottle((newVal: number) => {
-    invoke("set_brightness", { brightness: newVal }).catch(() => {});
-  }, 50);
-
-  const handleBrightnessChange = useCallback((newVal: number) => {
-    setCurrentBrightness(newVal);
-    sendBrightness(newVal);
-  }, [sendBrightness]);
-
   const openSettingsWindow = useCallback(async () => {
     try {
       await invoke("open_settings_window");
@@ -1408,60 +1036,13 @@ function App() {
     }
   }, []);
 
-  const handleWifiRightClick = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    openWifiSettings();
-  }, [openWifiSettings]);
-
-  const toggleDockModeSetting = useCallback(async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    const nextMode = dockMode === "fixed" ? "smart" : dockMode === "smart" ? "peek" : "fixed";
-    setDockMode(nextMode);
-    localStorage.setItem("nectar-dock-mode", nextMode);
-    invoke("save_setting", { key: "nectar-dock-mode", value: nextMode }).catch(console.error);
-    try {
-      await invoke("change_dock_mode", { mode: nextMode });
-    } catch (err) {
-      console.error("Failed to change dock mode:", err);
-    }
-  }, [dockMode]);
-
-  const toggleNotchModeSetting = useCallback(async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    const nextMode = notchMode === "fixed" ? "smart" : notchMode === "smart" ? "peek" : "fixed";
-    setNotchMode(nextMode);
-    try {
-      await invoke("set_notch_mode_for_window", { mode: nextMode });
-      await invoke("change_notch_mode", { mode: nextMode });
-    } catch (err) {
-      console.error("Failed to change notch mode:", err);
-    }
-  }, [notchMode]);
-
-  const handleBluetoothRightClick = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    invoke("open_bluetooth_settings");
-  }, []);
-
-
-
-  const toggleCalendarMode = (e: React.MouseEvent) => {
+  const handleClockClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (isTimerFinished) {
       resetTimer();
       return;
     }
-    if (!productivityEnabled) return;
-
-    setNectarMode(prev => {
-      if (prev === 'calendar') {
-        // Return to music mode if media is present and playing and music mode is enabled, otherwise status
-        return (settingsMusicModeEnabled && mediaInfo.has_media && isPlaying) ? 'music' : 'status';
-      }
-      return 'calendar';
-    });
+    toggleDashboard();
   };
 
   // Render a status widget by ID
@@ -1522,33 +1103,23 @@ function App() {
     return `${(bytes / (1024 * 1024)).toFixed(1)}M`;
   };
 
-  // Music mode shows any time we have media info (playing or paused) and music mode setting is enabled
-  const isMusicMode = mediaInfo.has_media && nectarMode === 'music' && settingsMusicModeEnabled;
+  // The compact bar shows live media info whenever there's media (playing or paused).
+  // The only expanded view is the dashboard.
+  const showCompactMedia = settingsMusicModeEnabled && settingsMusicCompactNotch && mediaInfo.has_media;
 
   // Calculate width dynamically based on enabled features
   const getDynamicWidth = () => {
     if (dashboardOpen) return 900;
-    if (isCalendarMode) return settingsCalendarEnabled && showClockColumn ? 480 : settingsCalendarEnabled ? 310 : 270;
-    if (nectarMode === 'command-center' && isHovered) {
-      const totalWidgets = statusWidgets.left.length + statusWidgets.right.length;
-      return Math.max(350, Math.min(200 + totalWidgets * 65, 460));
-    }
-    if (nectarMode === 'status' && isHovered) {
+    if (isHovered && !showCompactMedia) {
       const totalWidgets = statusWidgets.left.length + statusWidgets.right.length;
       return Math.min(200 + totalWidgets * 65, 460);
     }
-    if (isMusicMode && isHovered) return mediaLayout === 'compact' ? 300 : 340;
     if ((showPowerPulse || showLowBatteryPulse || showUpdatePulse) && !isHovered) return 200;
 
     let w = 140;
-    if (isMusicMode) {
-      w = 140;
+    if (showCompactMedia) {
       if (settingsVisualizerEnabled && isPlaying) w += 30;
       if (settingsAlbumArtEnabled) w += 30;
-
-      if (isHovered) {
-        w += 60;
-      }
     }
 
     return w;
@@ -1559,28 +1130,8 @@ function App() {
     if (!isExpanded || isHidden) {
       return isImpacted ? 28.9 : 44.2;
     }
-    if (nectarMode === 'calendar') return settingsCalendarEnabled ? (caldav.connected ? 350 : 310) : 262;
-    if (nectarMode === 'command-center') return isHovered ? 230 : 36;
-    if (nectarMode === 'status') return 36;
-    if (isMusicMode && isHovered) {
-      const hasProgressBar = (mediaInfo.duration_ms ?? 0) > 0;
-      let h = mediaLayout === 'compact' ? (hasProgressBar ? 132 : 116) : 120;
-      if (mediaLayout === 'compact') {
-        if (compactVolumeExpanded) h += 36;
-      }
-      return h;
-    }
     return 36;
   };
-
-  const isCalendarMode = nectarMode === 'calendar';
-
-  // Close compact media player expansions when notch is unhovered or mode changes
-  useEffect(() => {
-    if (mediaLayout === 'compact') {
-      setCompactVolumeExpanded(false);
-    }
-  }, [isHovered, mediaLayout, nectarMode]);
 
 
 
@@ -1614,7 +1165,6 @@ function App() {
           onMouseEnter={() => setIsNotchHovered(true)}
         onMouseLeave={() => setIsNotchHovered(false)}
         onMouseDown={handleNotchMouseDown}
-        onWheel={handleWheel}
         initial={{ y: 250, width: 30.6, height: 44.2, borderTopLeftRadius: 18, borderTopRightRadius: 18, borderBottomLeftRadius: 18, borderBottomRightRadius: 18, scaleX: 1, scaleY: 1, opacity: 0 }}
         animate={{
           y: !isReady ? 250 : (isHidden ? -100 : 0),
@@ -1625,8 +1175,8 @@ function App() {
           scaleY: 1,
           borderTopLeftRadius: isImpacted ? 0 : 18,
           borderTopRightRadius: isImpacted ? 0 : 18,
-          borderBottomLeftRadius: (isCalendarMode || dashboardOpen) ? 28 : 18,
-          borderBottomRightRadius: (isCalendarMode || dashboardOpen) ? 28 : 18,
+          borderBottomLeftRadius: dashboardOpen ? 28 : 18,
+          borderBottomRightRadius: dashboardOpen ? 28 : 18,
           filter: "blur(0px)",
           pointerEvents: 'auto'
         }}
@@ -1640,7 +1190,6 @@ function App() {
             dashboardCloseTimerRef.current = null;
           }
           setIsHovered(true);
-          setNectarMode(mediaInfo.has_media && isPlaying ? 'music' : 'status');
         }}
         onHoverEnd={() => {
           setIsHovered(false);
@@ -1650,13 +1199,6 @@ function App() {
               dashboardCloseTimerRef.current = null;
               setDashboardOpen(false);
             }, 1200);
-            return;
-          }
-          const targetMode = mediaInfo.has_media && isPlaying && settingsMusicCompactNotch ? 'music' : 'status';
-          if (nectarMode === 'music') {
-            setNectarMode(targetMode);
-          } else if (nectarMode === 'command-center' || nectarMode === 'calendar' || nectarMode === 'status') {
-            setNectarMode(targetMode);
           }
         }}
         style={{ originY: 0 }}
@@ -1672,31 +1214,6 @@ function App() {
           default: { type: "spring", stiffness: 500, damping: 30, mass: 1 }
         }}
       >
-
-        <AnimatePresence>
-          {isMusicMode && settingsAmbienceEnabled && albumArtUrl && isHovered && !isCalendarMode && (
-            <motion.div
-              className="notch-ambient-glow"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.15 }}
-            >
-              <AnimatePresence mode="wait">
-                <motion.img
-                  key={albumArtUrl}
-                  src={albumArtUrl}
-                  alt=""
-                  draggable={false}
-                  initial={{ opacity: 0, scale: 1.1 }}
-                  animate={{ opacity: 1, scale: 1.8 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.3 }}
-                />
-              </AnimatePresence>
-            </motion.div>
-          )}
-        </AnimatePresence>
         <AnimatePresence mode="wait">
           {dashboardOpen && (
             <motion.div
@@ -1737,187 +1254,10 @@ function App() {
               transition={{ duration: 0.1 }}
               style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', position: 'relative', borderRadius: 'inherit' }}
             >
-              {/* Faster Waiting Transition Area */}
+              {/* Compact bar content */}
               <AnimatePresence mode="wait">
-                {isHovered && isMusicMode && !isCalendarMode ? (
-                  <motion.div
-                    key="expanded-music"
-                    className="expanded-music-container"
-                    initial={{ opacity: 0, scale: 0.98 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.98, transition: { duration: 0.1 } }}
-                    transition={{ type: "spring", stiffness: 500, damping: 30 }}
-                  >
-                    {mediaLayout === 'compact' ? (
-                      <CompactMediaPlayer
-                        mediaInfo={mediaInfo}
-                        albumArtUrl={albumArtUrl}
-                        albumArtKey={albumArtKey}
-                        isPlaying={isPlaying}
-                        volume={displayVolume}
-                        volumeExpanded={compactVolumeExpanded}
-                        onVolumeExpandedChange={setCompactVolumeExpanded}
-                        onTogglePlayPause={togglePlayPause}
-                        onVolumeChange={handleVolumeChange}
-                        prevFront={prevFront}
-                        prevBack={prevBack}
-                        nextFront={nextFront}
-                        nextBack={nextBack}
-                        onAnimatePrev={animatePrev}
-                        onAnimateNext={animateNext}
-                        onLayoutChange={(layout) => {
-                          setMediaLayout(layout);
-                          localStorage.setItem("nectar-media-layout", layout);
-                          window.dispatchEvent(new CustomEvent("settings-changed", { detail: { key: "media-layout", value: layout } }));
-                        }}
-                      />
-                    ) : (
-                    <div className="compact-premium-layout">
-                      <div className="album-art-section">
-                        <motion.div
-                          className="premium-album-art"
-                          whileHover={{ scale: 1.05 }}
-                          whileTap={{ scale: 0.95 }}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setMediaLayout('compact');
-                            localStorage.setItem("nectar-media-layout", "compact");
-                            window.dispatchEvent(new CustomEvent("settings-changed", { detail: { key: "media-layout", value: "compact" } }));
-                          }}
-                          style={{ cursor: 'pointer' }}
-                        >
-                          <AnimatePresence mode="wait" initial={false}>
-                            {albumArtUrl ? (
-                              <motion.img
-                                key={`art-${albumArtKey}`}
-                                src={albumArtUrl}
-                                alt="Art"
-                                initial={{ rotateY: 90, opacity: 0 }}
-                                animate={{ rotateY: 0, opacity: 1 }}
-                                exit={{ rotateY: -90, opacity: 0 }}
-                                transition={{ duration: 0.3, ease: "easeInOut" }}
-                                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                              />
-                            ) : (
-                              <motion.div
-                                key="placeholder"
-                                className="art-placeholder-mini"
-                                initial={{ rotateY: 90, opacity: 0 }}
-                                animate={{ rotateY: 0, opacity: 1 }}
-                                exit={{ rotateY: -90, opacity: 0 }}
-                                transition={{ duration: 0.3, ease: "easeInOut" }}
-                              >
-                                <MusicNoteIcon size={32} className="music-placeholder-svg" />
-                              </motion.div>
-                            )}
-                          </AnimatePresence>
-                        </motion.div>
-                      </div>
-
-                      <div className="metadata-controls-section-middle">
-                        <div className="track-header-row">
-                          <div className="track-info-middle">
-                            <TitleMarquee title={mediaInfo.title} />
-                            <span className="premium-artist">{mediaInfo.artist}</span>
-                          </div>
-                          <div className="header-visualizer-wrap">
-                            <div className="header-visualizer">
-                              <Visualizer isPlaying={isPlaying} bars={5} height={18} />
-                            </div>
-                            <motion.button
-                              className="classic-audio-output-btn"
-                              onClick={(e) => { e.stopPropagation(); invoke('open_sound_settings').catch(() => {}); }}
-                              whileTap={{ scale: 0.9 }}
-                              data-tooltip="Audio Output"
-                            >
-                              <AudioOutputIcon size={20} style={{ opacity: 0.5 }} />
-                            </motion.button>
-                          </div>
-                        </div>
-
-                        <div className="controls-row-sleek">
-                          <motion.button
-                            className="sleek-btn previous-btn"
-                            onClick={(e) => { e.stopPropagation(); animatePrev(); }}
-                            whileHover={{ scale: 1.2 }}
-                            whileTap={{ scale: 0.9 }}
-                            transition={{ type: "spring", stiffness: 400, damping: 25 }}
-                          >
-                            <div style={{ position: 'relative', width: 32, height: 16, overflow: 'hidden' }}>
-                              <motion.div animate={prevBack} style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                <SkipBackIcon size={32} />
-                              </motion.div>
-                              <motion.div animate={prevFront} style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                <SkipBackIcon size={32} />
-                              </motion.div>
-                            </div>
-                          </motion.button>
-
-                          <motion.button
-                            className="sleek-btn play-pause-btn-floating"
-                            onClick={(e) => { e.stopPropagation(); togglePlayPause(); }}
-                            whileHover={{ scale: 1.2 }}
-                            whileTap={{ scale: 0.95 }}
-                            transition={{ type: "spring", stiffness: 400, damping: 25 }}
-                          >
-                            <AnimatePresence mode="wait" initial={false}>
-                              <motion.div
-                                key={isPlaying ? "pause" : "play"}
-                                initial={{ opacity: 0, scale: 0.8 }}
-                                animate={{ opacity: 1, scale: 1 }}
-                                exit={{ opacity: 0, scale: 0.8 }}
-                                transition={{ duration: 0.15 }}
-                                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                              >
-                                {isPlaying ? <PauseIcon size={26} /> : <PlayIcon size={26} />}
-                              </motion.div>
-                            </AnimatePresence>
-                          </motion.button>
-
-                          <motion.button
-                            className="sleek-btn next-btn"
-                            onClick={(e) => { e.stopPropagation(); animateNext(); }}
-                            whileHover={{ scale: 1.2 }}
-                            whileTap={{ scale: 0.9 }}
-                            transition={{ type: "spring", stiffness: 400, damping: 25 }}
-                          >
-                            <div style={{ position: 'relative', width: 32, height: 16, overflow: 'hidden' }}>
-                              <motion.div animate={nextBack} style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                <SkipForwardIcon size={32} />
-                              </motion.div>
-                              <motion.div animate={nextFront} style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                <SkipForwardIcon size={32} />
-                              </motion.div>
-                            </div>
-                          </motion.button>
-                        </div>
-
-                        <div className="volume-slider-container">
-                          <VolumeLowIcon size={12} style={{ opacity: 0.5 }} />
-                          <div className="slider-track-premium">
-                            <input
-                              type="range"
-                              min="0"
-                              max="1"
-                              step="0.01"
-                              value={displayVolume}
-                              onChange={(e) => handleVolumeChange(parseFloat(e.target.value))}
-                              onPointerDown={(e) => e.stopPropagation()}
-                              onClick={(e) => e.stopPropagation()}
-                              className="premium-slider"
-                            />
-                            <div className="slider-progress-fill" style={{ width: `${displayVolume * 100}%` }} />
-                          </div>
-                          <VolumeHighIcon size={14} style={{ opacity: 0.5 }} />
-                        </div>
-                      </div>
-
-                    </div>
-                    )}
-                  </motion.div>
-                ) : (
-                  <motion.div
-                    key="standard-view-group"
+                <motion.div
+                  key="standard-view-group"
                     initial={{ opacity: 0, y: -5 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: 5, transition: { duration: 0.1 } }}
@@ -1976,7 +1316,7 @@ function App() {
                                     <UpdateActivity />
                                   </motion.div>
                                 </AnimatePresence>
-                              ) : isMusicMode && settingsVisualizerEnabled ? (
+                              ) : showCompactMedia && settingsVisualizerEnabled ? (
                                 <AnimatePresence>
                                   {settingsVisualizerEnabled && (
                                     <motion.div
@@ -1989,7 +1329,7 @@ function App() {
                                     </motion.div>
                                   )}
                                 </AnimatePresence>
-                              ) : (!isMusicMode && isHovered && statusWidgets.left.length > 0) ? (
+                              ) : (!showCompactMedia && isHovered && statusWidgets.left.length > 0) ? (
                                 <motion.div
                                   key="left-widgets"
                                   className="passive-features-group"
@@ -2005,7 +1345,7 @@ function App() {
 
                             {/* Center - Time (always visible) */}
                             <div className="time-center">
-                              <div className="time-flip-container" onClick={toggleCalendarMode}>
+                              <div className="time-flip-container" onClick={handleClockClick}>
                                 <AnimatePresence initial={false}>
                                   {isCompactTimerVisible || isTimerFinished ? (
                                     <motion.span
@@ -2038,7 +1378,7 @@ function App() {
 
                             {/* Right: album art (music) or battery (command-center, calendar) */}
                             <div className="side-content right">
-                              {isMusicMode && settingsAlbumArtEnabled ? (
+                              {showCompactMedia && settingsAlbumArtEnabled ? (
                                 <AnimatePresence mode="wait">
                                   <motion.div
                                     key="album-art"
@@ -2108,7 +1448,7 @@ function App() {
                                   </button>
                                   </motion.div>
                                 </AnimatePresence>
-                              ) : (!isMusicMode && isHovered && statusWidgets.right.length > 0) ? (
+                              ) : (!showCompactMedia && isHovered && statusWidgets.right.length > 0) ? (
                                 <motion.div
                                   key="right-widgets"
                                   className="passive-features-group"
@@ -2126,239 +1466,6 @@ function App() {
                       </AnimatePresence>
                     </div>
                   </motion.div>
-                )}
-              </AnimatePresence>
-
-              {/* Command Center Panel */}
-              <AnimatePresence>
-                {nectarMode === 'command-center' && (
-                  <motion.div
-                    className="command-center-content-minimal"
-                    onClick={e => e.stopPropagation()}
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0, filter: "blur(4px)", transition: { duration: 0.1 } }}
-                    transition={{ type: "spring", stiffness: 400, damping: 30 }}
-                  >
-                    {/* Pills Grid */}
-                    <div className="cc-pills-grid">
-                      {/* Wi-Fi Pill */}
-                      <div
-                        className={`cc-pill-tile ${wifiEnabled ? 'active' : ''}`}
-                        onClick={(e) => { e.stopPropagation(); toggleWifi(); }}
-                        onContextMenu={handleWifiRightClick}
-                      >
-                        <div className="cc-pill-icon-wrapper">
-                          <WifiIcon enabled={wifiEnabled} connected={wifiConnected} />
-                        </div>
-                        <div className="cc-pill-info">
-                          <span className="cc-pill-title">Wi-Fi</span>
-                          <span className="cc-pill-status">{wifiStatus === null ? '…' : !wifiEnabled ? 'Off' : wifiConnected ? 'Connected' : 'Not connected'}</span>
-                        </div>
-                      </div>
-
-                      {/* Dock Mode Pill */}
-                      <div
-                        className={`cc-pill-tile ${dockMode === 'fixed' ? 'active' : ''}`}
-                        onClick={toggleDockModeSetting}
-                      >
-                        <div className="cc-pill-icon-wrapper">
-                          <DockIcon />
-                        </div>
-                        <div className="cc-pill-info">
-                          <span className="cc-pill-title">Dock Mode</span>
-                          <span className="cc-pill-status">{dockMode === 'fixed' ? 'Fixed' : dockMode === 'smart' ? 'Smart' : 'Peek'}</span>
-                        </div>
-                      </div>
-
-                      {/* Bluetooth Pill */}
-                      <div
-                        className={`cc-pill-tile ${bluetoothEnabled ? 'active' : ''}`}
-                        onClick={(e) => { e.stopPropagation(); toggleBluetooth(); }}
-                        onContextMenu={handleBluetoothRightClick}
-                      >
-                        <div className="cc-pill-icon-wrapper">
-                          <BluetoothIcon />
-                        </div>
-                        <div className="cc-pill-info">
-                          <span className="cc-pill-title">Bluetooth</span>
-                          <span className="cc-pill-status">{bluetoothEnabled ? 'On' : 'Off'}</span>
-                        </div>
-                      </div>
-
-                      {/* Notch Mode Pill */}
-                      <div
-                        className={`cc-pill-tile ${notchMode === 'fixed' ? 'active' : ''}`}
-                        onClick={toggleNotchModeSetting}
-                      >
-                        <div className="cc-pill-icon-wrapper">
-                          <NotchIcon />
-                        </div>
-                        <div className="cc-pill-info">
-                          <span className="cc-pill-title">Notch Mode</span>
-                          <span className="cc-pill-status">{notchMode === 'fixed' ? 'Fixed' : notchMode === 'smart' ? 'Smart' : 'Peek'}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Circular Actions Row */}
-                    <div className="cc-circular-actions-row">
-                      <button
-                        className={`cc-circular-btn ${dndActive ? 'active' : ''}`}
-                        onClick={(e) => { e.stopPropagation(); setDndActive(prev => !prev); }}
-                      >
-                        <MoonIcon />
-                      </button>
-                      <button
-                        className={`cc-circular-btn ${batterySaverEnabled ? 'active' : ''}`}
-                        onClick={(e) => { e.stopPropagation(); openBatterySaverSettings(); }}
-                      >
-                        <BatterySaverIcon />
-                      </button>
-                      <button
-                        className="cc-circular-btn"
-                        onClick={(e) => { e.stopPropagation(); invoke("open_tray_window"); }}
-                      >
-                        <TrayIcon />
-                      </button>
-                      <button
-                        className="cc-circular-btn"
-                        onClick={(e) => { e.stopPropagation(); invoke("open_notification_center"); }}
-                      >
-                        <BellIcon />
-                      </button>
-                      <button
-                        className="cc-circular-btn"
-                        title="Screenshot monitor ini (klik) · Pilih area bebas (klik kanan)"
-                        onClick={async (e) => {
-                          e.stopPropagation();
-                          if (capturing) return;
-                          setCapturing(true);
-                          try {
-                            const mon = await currentMonitor();
-                            const region = mon
-                              ? { x: mon.position.x, y: mon.position.y, width: mon.size.width, height: mon.size.height }
-                              : null;
-                            await invoke("take_screenshot", { region });
-                            setShotOk(true);
-                            setTimeout(() => setShotOk(false), 1500);
-                          } catch (err) {
-                            console.error(err);
-                          } finally {
-                            setCapturing(false);
-                          }
-                        }}
-                        onContextMenu={async (e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          try {
-                            const mon = await currentMonitor();
-                            if (!mon) return;
-                            await invoke("start_snip", { region: { x: mon.position.x, y: mon.position.y, width: mon.size.width, height: mon.size.height } });
-                          } catch (err) { console.error(err); }
-                        }}
-                      >
-                        {shotOk ? <Check size={14} strokeWidth={2.5} /> : <Camera size={14} strokeWidth={2.5} />}
-                      </button>
-                      <button
-                        className="cc-circular-btn"
-                        onClick={(e) => { e.stopPropagation(); openSettingsWindow(); }}
-                      >
-                        <SettingsIcon />
-                      </button>
-                      <button
-                        className="cc-circular-btn"
-                        onClick={(e) => { e.stopPropagation(); invoke("restart_nectar"); }}
-                      >
-                        <ReloadIcon />
-                      </button>
-                    </div>
-
-                    {/* Classic Sliders Area */}
-                    <div className="cc-classic-sliders-area">
-                      {/* Volume Slider */}
-                      <div className="cc-classic-slider-row">
-                        <div className="cc-classic-slider-label">
-                          <VolumeLowIcon style={{ opacity: 0.5 }} />
-                          <span>Volume</span>
-                        </div>
-                        <div className="cc-classic-slider-track">
-                          <input
-                            type="range"
-                            min="0"
-                            max="1"
-                            step="0.01"
-                            value={displayVolume}
-                            onChange={(e) => handleVolumeChange(parseFloat(e.target.value))}
-                            onPointerDown={(e) => e.stopPropagation()}
-                            onClick={(e) => e.stopPropagation()}
-                            className="cc-classic-input"
-                          />
-                          <div className="cc-classic-fill" style={{ width: `${displayVolume * 100}%` }} />
-                        </div>
-                        <span className="cc-classic-percentage">{Math.round(displayVolume * 100)}%</span>
-                      </div>
-
-                      {/* Brightness Slider */}
-                      <div className="cc-classic-slider-row">
-                        <div className="cc-classic-slider-label">
-                          <BrightnessLowIcon />
-                          <span>Brightness</span>
-                        </div>
-                        <div className="cc-classic-slider-track">
-                          <input
-                            type="range"
-                            min="0"
-                            max="100"
-                            step="1"
-                            value={currentBrightness}
-                            onChange={(e) => handleBrightnessChange(parseInt(e.target.value))}
-                            onPointerDown={(e) => e.stopPropagation()}
-                            onClick={(e) => e.stopPropagation()}
-                            className="cc-classic-input"
-                          />
-                          <div className="cc-classic-fill" style={{ width: `${currentBrightness}%` }} />
-                        </div>
-                        <span className="cc-classic-percentage">{currentBrightness}%</span>
-                      </div>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-
-              {/* Calendar & Timer Split View */}
-              <AnimatePresence>
-                {productivityEnabled && isCalendarMode && (
-                  <motion.div
-                    className="calendar-timer-content split-view"
-                    onClick={e => e.stopPropagation()} /* Block mode switches when clicking inside */
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0, filter: "blur(4px)", transition: { duration: 0.1 } }}
-                    transition={{ type: "spring", stiffness: 400, damping: 30 }}
-                  >
-                    {settingsCalendarEnabled && (
-                      <div className="calendar-column">
-                        <NotchCalendar caldav={caldav} hour12={!timeFormat24h} />
-                      </div>
-                    )}
-
-                    {showClockColumn && (
-                      <NotchClock
-                        timerEnabled={settingsTimerEnabled}
-                        stopwatchEnabled={settingsStopwatchEnabled}
-                        solo={!settingsCalendarEnabled}
-                        timerSeconds={timerSeconds}
-                        isTimerRunning={isTimerRunning}
-                        formatTimerTime={formatTimerTime}
-                        onStartTimer={startTimerSeconds}
-                        onToggleTimer={toggleTimer}
-                        onResetTimer={resetTimer}
-                        stopwatch={stopwatch}
-                      />
-                    )}
-                  </motion.div>
-                )}
               </AnimatePresence>
 
             </motion.div>
@@ -2369,87 +1476,6 @@ function App() {
     </div>
 
     </div>
-  );
-}
-
-function BluetoothIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M6.5 6.5l11 11L12 23V1l5.5 5.5-11 11" />
-    </svg>
-  );
-}
-
-function SettingsIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.9 }}>
-      <circle cx="12" cy="12" r="3" />
-      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-    </svg>
-  );
-}
-
-function BrightnessLowIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.5 }}>
-      <circle cx="12" cy="12" r="5" fill="currentColor" />
-    </svg>
-  );
-}
-
-function MoonIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-    </svg>
-  );
-}
-
-function DockIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="2" y="14" width="20" height="8" rx="2" />
-      <line x1="6" y1="18" x2="6.01" y2="18" strokeWidth="3.5" strokeLinecap="round" />
-      <line x1="10" y1="18" x2="10.01" y2="18" strokeWidth="3.5" strokeLinecap="round" />
-      <line x1="14" y1="18" x2="14.01" y2="18" strokeWidth="3.5" strokeLinecap="round" />
-      <line x1="18" y1="18" x2="18.01" y2="18" strokeWidth="3.5" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function NotchIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M4 3h16a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" />
-      <path d="M9 9v4a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2V9" />
-    </svg>
-  );
-}
-
-function BellIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9z" />
-      <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-    </svg>
-  );
-}
-
-function ReloadIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
-    </svg>
-  );
-}
-
-function BatterySaverIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="2" y="7" width="16" height="10" rx="2" />
-      <path d="M22 11v2" />
-      <path d="M6 12h4l2-3v6l-2-3H6" />
-    </svg>
   );
 }
 
