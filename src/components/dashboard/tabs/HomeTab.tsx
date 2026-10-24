@@ -2,8 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { emit } from '@tauri-apps/api/event';
 import { Plus, Webcam } from 'lucide-react';
-import type { CaldavState } from '../../hooks/useCaldav';
-import { PlayIcon, PauseIcon, SkipBackIcon, SkipForwardIcon, MusicNoteIcon } from '../../icons';
+import type { CaldavState } from '../../../hooks/useCaldav';
+import { PlayIcon, PauseIcon, SkipBackIcon, SkipForwardIcon, MusicNoteIcon } from '../../../icons';
 
 // Structurally compatible with the MediaInfo interface in App.tsx.
 export interface DashboardMediaInfo {
